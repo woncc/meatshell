@@ -79,3 +79,5 @@ Allow saved credentials, remote commands, and file transfers only for trusted cl
 ## License and credits
 
 Dual licensed under **MIT OR Apache-2.0**. Color emoji graphics come from [Twemoji](https://github.com/jdecked/twemoji) under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for full attribution.
+
+**Source code:** This repository is a fork of [yituorou/meatshell](https://github.com/yituorou/meatshell). Subsequent changes in this fork are recorded in its [commit history](https://github.com/woncc/meatshell/commits/main/).

@@ -79,3 +79,5 @@ meatshell cli exec <session-id> -- date
 ## 许可与致谢
 
 项目采用 **MIT OR Apache-2.0** 双许可。彩色 emoji 图形来自 [Twemoji](https://github.com/jdecked/twemoji)，按 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 使用；完整署名见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+**源码来源：**本仓库 fork 自 [yituorou/meatshell](https://github.com/yituorou/meatshell)；本仓库的后续修改可在 [提交历史](https://github.com/woncc/meatshell/commits/main/) 中查看。
