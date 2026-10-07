@@ -78,6 +78,9 @@ pub(crate) struct TabStatus {
     /// ICMP target for the local panel's latency mode. Empty for local shells,
     /// serial sessions, and any host that is not a plain name or address.
     pub(crate) probe_host: String,
+    /// SSH, Telnet, and RDP labels can be masked. Local shells and serial
+    /// sessions keep their device names.
+    pub(crate) redactable: bool,
 }
 
 /// Aligned download/upload samples for one rate graph.

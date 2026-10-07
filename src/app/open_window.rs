@@ -183,17 +183,26 @@ pub(super) fn open_window(
 
     let sessions_model: Rc<VecModel<SessionInfo>> = Rc::new(VecModel::default());
     window.set_sessions(ModelRc::from(sessions_model.clone()));
-    sync_sessions_to_model(&store.borrow(), &sessions_model);
+    sync_sessions_to_model_with_filter(
+        &store.borrow(),
+        &sessions_model,
+        "",
+        window.get_hide_ssh_identity(),
+    );
     window.set_wsl_profiles(wsl_profile_model(&store.borrow()));
     listen_for_config_changes(&ctx, &sessions_model);
     wire_wsl_profiles(&ctx, &sessions_model);
     wire_webdav_download(&ctx, &sessions_model);
 
     let tabs_model: Rc<VecModel<TabInfo>> = Rc::new(VecModel::default());
+    let welcome_title = t("新标签页", "New tab");
     tabs_model.push(TabInfo {
         id: "welcome".into(),
-        title_len: tab_title_len(&t("新标签页", "New tab")),
-        title: t("新标签页", "New tab").into(),
+        title_len: tab_title_len(&welcome_title),
+        title: welcome_title.into(),
+        title_raw: welcome_title.into(),
+        identity_user: "".into(),
+        identity_host: "".into(),
         kind: "welcome".into(),
         connected: false,
     });
@@ -647,6 +656,38 @@ pub(super) fn open_window(
         &local_snap,
         &local_net_hist,
     );
+
+    // Eye toggle: persist, then redraw labels. The connection itself is untouched.
+    {
+        let weak = window.as_weak();
+        let store = store.clone();
+        let registry = registry.clone();
+        let proc_win = proc_win.clone();
+        let sys_win = sys_win.clone();
+        window.on_set_hide_ssh_identity(move |hide| {
+            {
+                let mut saved = store.borrow_mut();
+                saved.set_hide_ssh_identity(hide);
+                let _ = saved.save();
+            }
+            registry.broadcast_config_changed();
+            let Some(w) = weak.upgrade() else {
+                return;
+            };
+            if w.get_process_window_open() {
+                proc_win.set_host(w.get_connection_state());
+            }
+            if w.get_system_info_window_open() {
+                sys_win.set_host(w.get_conn_host());
+                sys_win.set_connection_state(w.get_connection_state());
+            }
+            if w.get_dialog_open() {
+                let id = w.get_dialog_id().to_string();
+                let (labels, _ids) = jump_candidates(&store.borrow(), &id, hide);
+                w.set_jump_choices(labels);
+            }
+        });
+    }
 
     wire_auth_prompts(&ctx);
 

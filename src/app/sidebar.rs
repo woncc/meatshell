@@ -47,6 +47,21 @@ mod activity_tests {
     }
 }
 
+fn present_connection(win: &AppWindow, st: &TabStatus, label: String) {
+    let hide = win.get_hide_ssh_identity() && st.redactable;
+    let (user, host) = if st.redactable {
+        identity_from_connection_label(&st.host, &st.user, &st.probe_host)
+    } else {
+        (String::new(), String::new())
+    };
+    win.set_connection_state(displayed_identity_text(hide, &label, &user, &host).into());
+    win.set_conn_host(if hide {
+        "".into()
+    } else {
+        conn_ip(&st.host).into()
+    });
+}
+
 pub(super) fn refresh_sidebar(
     win: &AppWindow,
     statuses: &TabStatuses,
@@ -245,17 +260,14 @@ pub(super) fn refresh_sidebar(
             } else {
                 0
             });
-            win.set_connection_state(
-                if st.state == 1 {
-                    st.host.clone()
-                } else if st.state == 2 {
-                    format!("{} {}", st.host, t("已断开", "disconnected"))
-                } else {
-                    format!("{} {}", t("连接中", "Connecting"), st.host)
-                }
-                .into(),
-            );
-            win.set_conn_host(conn_ip(&st.host).into());
+            let label = if st.state == 1 {
+                st.host.clone()
+            } else if st.state == 2 {
+                format!("{} {}", st.host, t("已断开", "disconnected"))
+            } else {
+                format!("{} {}", t("连接中", "Connecting"), st.host)
+            };
+            present_connection(win, &st, label);
             show_local_res(win);
             set_top_local(win);
             show_local_system_models(win);
@@ -263,8 +275,7 @@ pub(super) fn refresh_sidebar(
         // A live remote session tab → remote resources + remote NIC on top.
         Some(st) if st.state == 1 => {
             win.set_conn_state(1);
-            win.set_connection_state(st.host.clone().into());
-            win.set_conn_host(conn_ip(&st.host).into());
+            present_connection(win, &st, st.host.clone());
             win.set_resource_title(t("服务器资源", "Server resources").into());
             win.set_cpu_percent(st.cpu);
             win.set_mem_percent(pct(st.mem_used_kib, st.mem_total_kib));
@@ -300,8 +311,11 @@ pub(super) fn refresh_sidebar(
         // Disconnected / timed-out session.
         Some(st) if st.state == 2 => {
             win.set_conn_state(2);
-            win.set_connection_state(format!("{} {}", st.host, t("已断开", "disconnected")).into());
-            win.set_conn_host(conn_ip(&st.host).into());
+            present_connection(
+                win,
+                &st,
+                format!("{} {}", st.host, t("已断开", "disconnected")),
+            );
             win.set_resource_title(t("服务器资源", "Server resources").into());
             clear_stats(win);
             set_top_local(win);
@@ -320,8 +334,11 @@ pub(super) fn refresh_sidebar(
         // Still connecting.
         Some(st) => {
             win.set_conn_state(0);
-            win.set_connection_state(format!("{} {}", t("连接中", "Connecting"), st.host).into());
-            win.set_conn_host(conn_ip(&st.host).into());
+            present_connection(
+                win,
+                &st,
+                format!("{} {}", t("连接中", "Connecting"), st.host),
+            );
             win.set_resource_title(t("服务器资源", "Server resources").into());
             clear_stats(win);
             set_top_local(win);
@@ -458,8 +475,10 @@ pub(super) fn wire_sidebar_refresh_and_theme(
             for i in 0..tabs_model.row_count() {
                 if let Some(mut row) = tabs_model.row_data(i) {
                     if row.id.as_str() == "welcome" {
-                        row.title_len = tab_title_len(&t("新标签页", "New tab"));
-                        row.title = t("新标签页", "New tab").into();
+                        let title = t("新标签页", "New tab");
+                        row.title_len = tab_title_len(&title);
+                        row.title = title.into();
+                        row.title_raw = title.into();
                         tabs_model.set_row_data(i, row);
                     }
                 }

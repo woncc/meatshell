@@ -22,12 +22,13 @@ pub(super) fn sync_sessions_for_window(
         return;
     };
     let query = window.get_host_search_query().to_string();
+    let hide_identity = window.get_hide_ssh_identity();
     // Prefer in-place row updates: they keep the list's scroll position and
     // any running drag alive and skip the reallocation. A full set_vec
     // rebuild — which destroys the dragging row's pointer grab — happens
     // only when the row count changed, and the revision bump tells Welcome
     // to clear its stale drag state in exactly that case.
-    if !refresh_session_rows_in_place(store, model, &query) {
+    if !refresh_session_rows_in_place(store, model, &query, hide_identity) {
         window.set_sessions_revision(window.get_sessions_revision() + 1);
     }
 }
@@ -95,6 +96,7 @@ pub(super) fn wire_session_callbacks(
                     &store.borrow(),
                     &sessions_model,
                     query.as_str(),
+                    window.get_hide_ssh_identity(),
                 );
             }
         });
@@ -155,7 +157,8 @@ pub(super) fn wire_session_callbacks(
             w.set_dialog_forwards(forward_model(&ef_new.borrow()));
             w.set_dialog_triggers(trigger_model(&et_new.borrow()));
             let empty = Session::new_empty();
-            let (jump_labels, jump_ids) = jump_candidates(&store_ng.borrow(), &empty.id);
+            let (jump_labels, jump_ids) =
+                jump_candidates(&store_ng.borrow(), &empty.id, w.get_hide_ssh_identity());
             w.set_jump_choices(jump_labels);
             w.set_jump_ids(jump_ids);
             w.set_dialog_jumps(ModelRc::default());
@@ -419,7 +422,8 @@ pub(super) fn wire_session_callbacks(
                 let (proxy_type, proxy_hostport) = split_proxy(&session.proxy);
                 w.set_dialog_proxy_type(proxy_type.into());
                 w.set_dialog_proxy_hostport(proxy_hostport.into());
-                let (jump_labels, jump_ids) = jump_candidates(&store, &session.id);
+                let (jump_labels, jump_ids) =
+                    jump_candidates(&store, &session.id, w.get_hide_ssh_identity());
                 let route = store.resolve_jump_chain(session);
                 let ids = match route {
                     Ok(hops) => hops.into_iter().rev().map(|hop| hop.id).collect(),
@@ -597,8 +601,16 @@ pub(super) fn wire_session_callbacks(
                     .upgrade()
                     .map(|w| w.get_host_search_query().to_string())
                     .unwrap_or_default();
-                let in_place =
-                    refresh_session_rows_in_place(&store.borrow(), &sessions_model, &query);
+                let hide_identity = weak
+                    .upgrade()
+                    .map(|w| w.get_hide_ssh_identity())
+                    .unwrap_or(false);
+                let in_place = refresh_session_rows_in_place(
+                    &store.borrow(),
+                    &sessions_model,
+                    &query,
+                    hide_identity,
+                );
                 if !in_place {
                     // The hop changed the row count (e.g. a cross-group hop
                     // emptied the ungrouped section): the set_vec rebuild
@@ -1212,6 +1224,18 @@ pub(super) fn wire_session_callbacks(
             }
             let tab_id = format!("term-{}", uuid::Uuid::new_v4());
             let tab_title = session.name.clone();
+            let hide_identity = weak
+                .upgrade()
+                .map(|w| w.get_hide_ssh_identity())
+                .unwrap_or(false);
+            let (identity_user, identity_host) = match session.kind {
+                SessionKind::Ssh | SessionKind::Telnet | SessionKind::Rdp => {
+                    (session.user.clone(), session.host.clone())
+                }
+                _ => (String::new(), String::new()),
+            };
+            let shown_title =
+                displayed_identity_text(hide_identity, &tab_title, &identity_user, &identity_host);
 
             // Connection label shown in the sidebar / status line, per transport.
             let conn_label = match session.kind {
@@ -1241,6 +1265,10 @@ pub(super) fn wire_session_callbacks(
                     state: 0,
                     is_local: session.kind == SessionKind::Local,
                     probe_host: session_probe_host(&session),
+                    redactable: matches!(
+                        session.kind,
+                        SessionKind::Ssh | SessionKind::Telnet | SessionKind::Rdp
+                    ),
                     ..Default::default()
                 },
             );
@@ -1248,8 +1276,11 @@ pub(super) fn wire_session_callbacks(
             // Register tab + terminal state (SFTP fields start empty/loading).
             tabs_model.push(TabInfo {
                 id: tab_id.clone().into(),
-                title_len: tab_title_len(&tab_title),
-                title: tab_title.into(),
+                title_len: tab_title_len(&shown_title),
+                title: shown_title.into(),
+                title_raw: tab_title.into(),
+                identity_user: identity_user.clone().into(),
+                identity_host: identity_host.clone().into(),
                 kind: "terminal".into(),
                 connected: false,
             });
@@ -1266,9 +1297,19 @@ pub(super) fn wire_session_callbacks(
                     )
                 })
                 .unwrap_or((false, 220.0, 380.0));
+            let connecting = t("连接中...", "Connecting...");
             terminals_model.push(TerminalState {
                 id: tab_id.clone().into(),
-                status: t("连接中...", "Connecting...").into(),
+                status: displayed_identity_text(
+                    hide_identity,
+                    connecting,
+                    identity_user.as_str(),
+                    identity_host.as_str(),
+                )
+                .into(),
+                status_raw: connecting.into(),
+                identity_user: identity_user.into(),
+                identity_host: identity_host.into(),
                 spans: ModelRc::from(std::rc::Rc::new(VecModel::<TermSpan>::default())),
                 cursor_row: 0,
                 cursor_col: 0,
@@ -1447,7 +1488,13 @@ pub(super) fn wire_session_callbacks(
             let title = (0..tabs_model.row_count())
                 .find_map(|i| {
                     let row = tabs_model.row_data(i)?;
-                    (row.id.as_str() == tab_id).then(|| row.title.to_string())
+                    (row.id.as_str() == tab_id).then(|| {
+                        if row.title_raw.is_empty() {
+                            row.title.to_string()
+                        } else {
+                            row.title_raw.to_string()
+                        }
+                    })
                 })
                 .unwrap_or_default();
             if let Some(w) = weak.upgrade() {
@@ -1498,11 +1545,14 @@ pub(super) fn wire_session_callbacks(
             let Some(title) = title else {
                 return;
             };
+            let hide = weak
+                .upgrade()
+                .map(|w| w.get_hide_ssh_identity())
+                .unwrap_or(false);
             for i in 0..tabs_model.row_count() {
                 if let Some(mut row) = tabs_model.row_data(i) {
                     if row.id.as_str() == tab_id {
-                        row.title_len = tab_title_len(&title);
-                        row.title = title.clone().into();
+                        write_tab_title(&mut row, hide, &title);
                         tabs_model.set_row_data(i, row);
                         break;
                     }
@@ -1516,8 +1566,7 @@ pub(super) fn wire_session_callbacks(
                     for ti in 0..pane.tabs.row_count() {
                         if let Some(mut tab) = pane.tabs.row_data(ti) {
                             if tab.id.as_str() == tab_id {
-                                tab.title_len = tab_title_len(&title);
-                                tab.title = title.clone().into();
+                                write_tab_title(&mut tab, hide, &title);
                                 pane.tabs.set_row_data(ti, tab);
                             }
                         }
@@ -1553,6 +1602,9 @@ pub(super) fn listen_for_config_changes(ctx: &WinCtx, sessions_model: &Rc<VecMod
             window_id,
             Rc::new(move || {
                 let Some(w) = weak.upgrade() else { return };
+                w.set_hide_ssh_identity(store.borrow().hide_ssh_identity());
+                reapply_identity_mask(&w);
+                w.invoke_refresh_sidebar();
                 // Rebuild the list with the window's current search filter.
                 sync_sessions_for_window(&weak, &store.borrow(), &sessions_model);
                 // Re-apply the theme to the chrome AND every open terminal buffer.

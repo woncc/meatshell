@@ -191,6 +191,11 @@ pub struct ConfigFile {
     /// Hide auxiliary panels and edge strips so the terminal fills the window.
     #[serde(default)]
     pub zen_mode: bool,
+    /// Screenshot redaction. Default off: SSH/Telnet/RDP usernames and hosts
+    /// stay visible. On replaces those labels with a placeholder; the stored
+    /// session and the live connection are unchanged.
+    #[serde(default)]
+    pub hide_ssh_identity: bool,
     /// Saved quick commands (#55).
     #[serde(default)]
     pub quick_commands: Vec<QuickCommand>,

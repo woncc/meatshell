@@ -4,6 +4,9 @@ import { IconButton } from "widgets.slint";
 export struct TabInfo {
     id: string,
     title: string,
+    title-raw: string,      // unmasked title; `title` may be the screenshot placeholder
+    identity-user: string,  // real SSH user, empty for local/serial
+    identity-host: string,  // real SSH/Telnet/RDP host, empty otherwise
     title_len: int,
     kind: string,   // "welcome" | "terminal"
     connected: bool,

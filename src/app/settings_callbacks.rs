@@ -151,6 +151,7 @@ pub(super) fn wire_interface_toggles(
     window.set_paste_confirm_enabled(store.borrow().paste_confirm_enabled());
     window.set_extra_paste_shortcuts_enabled(store.borrow().extra_paste_shortcuts_enabled());
     window.set_zen_mode(store.borrow().zen_mode());
+    window.set_hide_ssh_identity(store.borrow().hide_ssh_identity());
     {
         let store = store.clone();
         window.on_set_download_always_ask(move |ask| {

@@ -466,8 +466,11 @@ pub(super) fn wire_key_input(
                     ctx.sftp_last_cwd.lock().unwrap().remove(tab_id.as_str());
                     if let Some(w) = ctx.weak.upgrade() {
                         set_terminal_row(&w, tab_id.as_str(), |t| {
-                            t.status =
-                                crate::i18n::t("重连中...", "Reconnecting...").into();
+                            write_terminal_status(
+                                t,
+                                w.get_hide_ssh_identity(),
+                                crate::i18n::t("重连中...", "Reconnecting..."),
+                            );
                         });
                     }
                     start_session_in_tab(tab_id.as_str(), session, &ctx);

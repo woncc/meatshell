@@ -89,6 +89,7 @@ open /Applications/meatshell.app
 
 - [x] FinalShell-style UI with dark / light / follow-system themes
 - [x] Local + remote resource monitoring (CPU / memory / swap / network / disk)
+- [x] Screenshot mask: the toolbar eye (also Settings → Sidebars) shows SSH / Telnet / RDP usernames and hosts by default. Turning it on replaces them with `****` in the sidebar status, terminal status line, session list, and tab title. The connection still uses the real address
 - [x] Remote process monitor (CPU-sorted table with PID copy and permission-aware termination)
 - [x] Full VT/ANSI terminal emulation (btop / htop / vim render correctly)
 - [x] Color emoji, including skin tones, flags, and ZWJ sequences

@@ -53,6 +53,9 @@ export struct TransferInfo {
 export struct TerminalState {
     id: string,
     status: string,
+    status-raw: string,     // unmasked status line
+    identity-user: string,  // real user used only to mask `status`
+    identity-host: string,  // real host used only to mask `status`
     spans: [TermSpan],     // coloured runs of the visible terminal screen
     cursor-row: int,       // cursor cell on the grid
     cursor-col: int,
@@ -691,6 +694,10 @@ export component AppWindow inherits Window {
     callback set-extra-paste-shortcuts-enabled(bool);
     in-out property <bool> zen-mode: false;
     callback set-zen-mode(bool);
+    // Eye toggle: hide SSH/Telnet/RDP usernames and hosts for screenshots.
+    // Default off (plaintext). Does not change the live connection.
+    in-out property <bool> hide-ssh-identity: false;
+    callback set-hide-ssh-identity(bool);
     // Zen empties/restores the whole dock stack without resizing the frame, so
     // every entry point (keyboard toggle AND the settings switch through the
     // two-way binding) must re-run the dock geometry — one hook covers them all
@@ -2675,6 +2682,19 @@ export component AppWindow inherits Window {
             ? (root.cmd-bar-hidden ? "Show command bar" : "Hide command bar")
             : (root.cmd-bar-hidden ? "显示命令栏" : "隐藏命令栏");
         clicked => { root.cmd-bar-hidden = !root.cmd-bar-hidden; root.set-cmd-bar-hidden(root.cmd-bar-hidden); }
+    }
+    IconBtn {
+        x: root.width - 184px - root.toolbar-x-off; y: root.toolbar-y;
+        // Open eye while the address is visible; closed eye while it is masked.
+        icon: root.hide-ssh-identity ? "\u{E8F5}" : "\u{E8F4}";
+        active: root.hide-ssh-identity;
+        tooltip: root.lang-en
+            ? (root.hide-ssh-identity ? "Show SSH user and host" : "Hide SSH user and host")
+            : (root.hide-ssh-identity ? "显示 SSH 用户名和主机" : "隐藏 SSH 用户名和主机");
+        clicked => {
+            root.hide-ssh-identity = !root.hide-ssh-identity;
+            root.set-hide-ssh-identity(root.hide-ssh-identity);
+        }
     }
 
     // Frameless resize edges (#119): thin hit-zones that start an OS-level
@@ -4746,6 +4766,7 @@ export component AppWindow inherits Window {
         height: parent.height;
         is-open <=> root.dialog-open;
         is-editing <=> root.dialog-editing;
+        hide-identity: root.hide-ssh-identity;
         is-mac: root.is-mac;
         covered: root.active-modal != ModalKind.session;
         draft-id <=> root.dialog-id;
@@ -5004,7 +5025,7 @@ export component AppWindow inherits Window {
                     font-weight: 600;
                 }
                 Text {
-                    text: root.cred-host;
+                    text: root.hide-ssh-identity ? "****" : root.cred-host;
                     color: Theme.text-secondary;
                     font-family: Theme.font-mono;
                     font-size: Theme.fs-sm;
@@ -5012,6 +5033,7 @@ export component AppWindow inherits Window {
                 if root.cred-need-user : LabeledInput {
                     label: @tr("Username");
                     placeholder: "root";
+                    password: root.hide-ssh-identity;
                     value <=> root.cred-user;
                     accepted => { root.cred-accept(); }
                     canceled => { root.cred-reject(); }   // Esc cancels (#140-3)
@@ -5268,6 +5290,7 @@ export component AppWindow inherits Window {
                     paste-confirm-enabled <=> root.paste-confirm-enabled;
                     extra-paste-shortcuts-enabled <=> root.extra-paste-shortcuts-enabled;
                     zen-mode <=> root.zen-mode;
+                    hide-ssh-identity <=> root.hide-ssh-identity;
                     welcome-as-sidebar <=> root.welcome-as-sidebar;
                     quick-commands-as-sidebar <=> root.quick-commands-as-sidebar;
                     update-check-enabled <=> root.update-check-enabled;
@@ -5325,6 +5348,7 @@ export component AppWindow inherits Window {
                     set-paste-confirm-enabled(v) => { root.set-paste-confirm-enabled(v); }
                     set-extra-paste-shortcuts-enabled(v) => { root.set-extra-paste-shortcuts-enabled(v); }
                     set-zen-mode(v) => { root.set-zen-mode(v); }
+                    set-hide-ssh-identity(v) => { root.set-hide-ssh-identity(v); }
                     set-welcome-as-sidebar(v) => { root.set-welcome-as-sidebar(v); }
                     set-quick-commands-as-sidebar(v) => {
                         root.quick-commands-as-sidebar = v;

@@ -878,6 +878,16 @@ impl ConfigStore {
         self.cache.zen_mode = enabled;
     }
 
+    /// Eye toggle: hide SSH/Telnet/RDP usernames and hosts in the UI.
+    /// Default is visible so existing windows look the same.
+    pub fn hide_ssh_identity(&self) -> bool {
+        self.cache.hide_ssh_identity
+    }
+
+    pub fn set_hide_ssh_identity(&mut self, hide: bool) {
+        self.cache.hide_ssh_identity = hide;
+    }
+
     /// Force regular terminal text to render with a bold face (#262).
     pub fn terminal_bold(&self) -> bool {
         self.cache.terminal_bold
@@ -2573,6 +2583,7 @@ mod tests {
         assert!(store.paste_confirm_enabled());
         assert!(store.extra_paste_shortcuts_enabled());
         assert!(!store.zen_mode());
+        assert!(!store.hide_ssh_identity());
         assert_eq!(store.terminal_line_spacing(), 1.0);
 
         store.set_terminal_line_spacing(0.1);
@@ -2583,9 +2594,11 @@ mod tests {
         store.set_paste_confirm_enabled(false);
         store.set_extra_paste_shortcuts_enabled(false);
         store.set_zen_mode(true);
+        store.set_hide_ssh_identity(true);
         assert!(!store.paste_confirm_enabled());
         assert!(!store.extra_paste_shortcuts_enabled());
         assert!(store.zen_mode());
+        assert!(store.hide_ssh_identity());
     }
 
     #[test]

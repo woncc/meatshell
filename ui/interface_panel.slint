@@ -401,6 +401,7 @@ export component InterfacePanel inherits Rectangle {
     in-out property <bool> paste-confirm-enabled: true;
     in-out property <bool> extra-paste-shortcuts-enabled: true;
     in-out property <bool> zen-mode: false;
+    in-out property <bool> hide-ssh-identity: false;
     in-out property <bool> welcome-as-sidebar;
     in-out property <bool> quick-commands-as-sidebar;
     in-out property <bool> update-check-enabled;
@@ -461,6 +462,7 @@ export component InterfacePanel inherits Rectangle {
     callback set-paste-confirm-enabled(bool);
     callback set-extra-paste-shortcuts-enabled(bool);
     callback set-zen-mode(bool);
+    callback set-hide-ssh-identity(bool);
     callback set-welcome-as-sidebar(bool);
     callback set-quick-commands-as-sidebar(bool);
     callback set-update-check-enabled(bool);   // startup new-version check (#184)
@@ -1457,6 +1459,16 @@ export component InterfacePanel inherits Rectangle {
                     Switch {
                         on: root.zen-mode;
                         toggled(v) => { root.zen-mode = v; root.set-zen-mode(v); }
+                    }
+                }
+                SettingRow {
+                    label: root.lang-en ? "Hide SSH user and host" : "隐藏 SSH 用户名和主机";
+                    desc: root.lang-en
+                        ? "Default shows them. On replaces the username and host with **** in the sidebar, terminal status, session list, and tab title. The connection still uses the real address. The toolbar eye does the same."
+                        : "默认显示明文。打开后，侧栏、终端状态、会话列表和标签标题里的用户名和主机会变成 ****。连接仍使用真实地址。工具栏的眼睛按钮同样切换。";
+                    Switch {
+                        on: root.hide-ssh-identity;
+                        toggled(v) => { root.hide-ssh-identity = v; root.set-hide-ssh-identity(v); }
                     }
                 }
                 SettingRow {
