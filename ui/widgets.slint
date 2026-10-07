@@ -108,6 +108,9 @@ export component LabeledInput inherits VerticalLayout {
     in property <string> placeholder;
     in-out property <string> value;
     in property <bool> password: false;
+    // Closed-eye identity fields. Shows a fixed `****` instead of one bullet
+    // per character, and does not reveal the real value while masked.
+    in property <bool> fixed-mask: false;
     in property <bool> reveal-enabled: false;
     in-out property <bool> revealed: false;
     callback reveal() -> string;
@@ -198,6 +201,22 @@ export component LabeledInput inherits VerticalLayout {
                 }
             }
         }
+        if root.fixed-mask : Rectangle {
+            width: parent.width;
+            height: parent.height;
+            background: root.input-background;
+            border-radius: Theme.radius-sm;
+            TouchArea {}
+            Text {
+                x: 10px;
+                text: "****";
+                color: Theme.text-primary;
+                font-family: Theme.ui-font-family;
+                font-size: Theme.fs-md;
+                vertical-alignment: center;
+                height: parent.height;
+            }
+        }
         if root.password && root.reveal-enabled : IconButton {
             x: parent.width - 34px;
             y: 2px;
@@ -215,14 +234,21 @@ export component LabeledInput inherits VerticalLayout {
 // --- Sparkline -------------------------------------------------------------
 // Compact horizontal bar chart used in the stats sidebar.
 // Bar pitch is fixed: a wider parent reveals more samples (more time) instead
-// of drawing thicker bars. 3px is the default sidebar density, (220px - 40px
-// chrome) / 60 samples. Newest sample stays on the right.
+// of drawing thicker bars. Newest sample stays on the right. The ring buffer
+// holds enough samples to fill the widest side panel at this pitch.
 export component Sparkline inherits Rectangle {
     in property <[float]> values;
     in property <[float]> values-up;
     in property <brush> line-color: Theme.accent;
     in property <brush> up-color: Theme.success;
     in property <length> bar-pitch: 3px;
+    // The parent rescales from this width so the Y axis matches the bars
+    // actually drawn, not samples that have scrolled off the left.
+    callback resized(float);
+    property <float> plot-px: self.width / 1px;
+    changed plot-px => {
+        if (root.plot-px > 1) { root.resized(root.plot-px); }
+    }
     property <bool> split: root.values-up.length > 0;
     property <int> capacity: max(1, floor(self.width / root.bar-pitch));
     property <int> shown: min(root.values.length, root.capacity);

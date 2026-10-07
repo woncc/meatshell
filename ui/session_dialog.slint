@@ -862,9 +862,10 @@ export component SessionDialog inherits ModalLayer {
                 idle-border: Theme.border-strong;
                 label: @tr("Name");
                 placeholder: @tr("e.g. production web-01");
-                password: root.hide-identity && root.draft-kind != "serial"
+                fixed-mask: root.hide-identity && root.draft-kind != "serial"
                     && root.draft-user != "" && root.draft-host != ""
-                    && root.draft-name == root.draft-user + "@" + root.draft-host;
+                    && (root.draft-name == root.draft-user + "@" + root.draft-host
+                        || root.draft-name == root.draft-user + "@" + root.draft-host + ":" + root.draft-port);
                 value <=> root.draft-name;
             }
 
@@ -894,7 +895,7 @@ export component SessionDialog inherits ModalLayer {
                     idle-border: Theme.border-strong;
                     label: @tr("Host / IP");
                     placeholder: "192.168.1.10";
-                    password: root.hide-identity;
+                    fixed-mask: root.hide-identity;
                     value <=> root.draft-host;
                     horizontal-stretch: 2;
                 }
@@ -904,6 +905,7 @@ export component SessionDialog inherits ModalLayer {
                     label: @tr("Port");
                     placeholder: root.draft-kind == "telnet" ? "23"
                         : root.draft-kind == "rdp" ? "3389" : "22";
+                    fixed-mask: root.hide-identity;
                     value <=> root.draft-port;
                     horizontal-stretch: 1;
                 }
@@ -922,7 +924,7 @@ export component SessionDialog inherits ModalLayer {
                 idle-border: Theme.border-strong;
                 label: @tr("Username");
                 placeholder: @tr("Prompted on connect if blank");
-                password: root.hide-identity;
+                fixed-mask: root.hide-identity;
                 value <=> root.draft-user;
             }
 
@@ -1154,7 +1156,7 @@ export component SessionDialog inherits ModalLayer {
                 idle-border: Theme.border-strong;
                 label: @tr("Username");
                 placeholder: @tr("DOMAIN\\user or user@domain");
-                password: root.hide-identity;
+                fixed-mask: root.hide-identity;
                 value <=> root.draft-user;
             }
 
@@ -1458,7 +1460,7 @@ export component SessionDialog inherits ModalLayer {
                 }
                 Text {
                     text: root.hide-identity
-                        ? @tr("Target") + ": ****@****:" + root.draft-port
+                        ? @tr("Target") + ": ****"
                         : @tr("Target") + ": " + root.draft-user + "@" + root.draft-host + ":" + root.draft-port;
                     color: Theme.text-secondary; font-size: Theme.fs-sm; overflow: elide;
                 }

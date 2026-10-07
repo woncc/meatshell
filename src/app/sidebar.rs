@@ -1,5 +1,27 @@
 use super::*;
 
+fn rescale_if_plot_width_changed(win: &AppWindow, rate: bool, px: f32) {
+    let next = if px.is_finite() { px } else { 0.0 };
+    let prev = if rate {
+        win.get_rate_plot_px()
+    } else {
+        win.get_latency_plot_px()
+    };
+    if (prev - next).abs() < 0.5 {
+        return;
+    }
+    let prev_bars = crate::resource::system::sparkline_bars_for_width(prev);
+    let next_bars = crate::resource::system::sparkline_bars_for_width(next);
+    if rate {
+        win.set_rate_plot_px(next);
+    } else {
+        win.set_latency_plot_px(next);
+    }
+    if prev_bars != next_bars {
+        win.invoke_refresh_sidebar();
+    }
+}
+
 fn dynamic_sidebar_visible(active: bool, collapsed: bool) -> bool {
     active && !collapsed
 }
@@ -400,15 +422,69 @@ fn apply_local_panel(
     win.set_net_bot_down(view.speed_down.into());
     win.set_local_latency_text(view.latency_text.into());
     if latency_mode {
-        win.set_local_latency_history(normalized_model(&local.latency.history()));
+        win.set_local_latency_history(normalized_visible(
+            &local.latency.history(),
+            latency_visible_bars(win),
+        ));
     } else {
         let hist = local_net_hist.lock().unwrap();
         apply_rate_series(win, false, &hist.rx, &hist.tx);
     }
 }
 
+/// How many fixed-pitch bars the rate or latency sparkline is drawing.
+/// The measured plot width wins; before the first layout, the docked panel
+/// width (minus the axis column on rate charts) is the same window.
+fn plot_bars(win: &AppWindow, measured_px: f32, rate: bool) -> usize {
+    let px = if measured_px.is_finite() && measured_px > 1.0 {
+        measured_px
+    } else {
+        let panel = sidebar_span_px(win);
+        let scale = win.get_ui_scale();
+        let scale = if scale.is_finite() && scale > 0.0 {
+            scale
+        } else {
+            1.0
+        };
+        if rate {
+            panel
+                - crate::resource::system::SPARKLINE_EDGE_CHROME_PX
+                - crate::resource::system::RATE_AXIS_LABEL_PX * scale
+                - crate::resource::system::RATE_AXIS_GAP_PX
+        } else {
+            panel - crate::resource::system::SPARKLINE_EDGE_CHROME_PX
+        }
+    };
+    crate::resource::system::sparkline_bars_for_width(px)
+}
+
+fn rate_visible_bars(win: &AppWindow) -> usize {
+    plot_bars(win, win.get_rate_plot_px(), true)
+}
+
+fn latency_visible_bars(win: &AppWindow) -> usize {
+    plot_bars(win, win.get_latency_plot_px(), false)
+}
+
+fn sidebar_span_px(win: &AppWindow) -> f32 {
+    if let Some(model) = win
+        .get_dock_panels()
+        .as_any()
+        .downcast_ref::<VecModel<PanelGeomInfo>>()
+    {
+        for i in 0..model.row_count() {
+            if let Some(panel) = model.row_data(i) {
+                if panel.kind.as_str() == "sidebar" && panel.w > 1.0 {
+                    return panel.w;
+                }
+            }
+        }
+    }
+    win.get_sidebar_width()
+}
+
 fn apply_rate_series(win: &AppWindow, top: bool, rx: &[f32], tx: &[f32]) {
-    let scaled = scale_rate_pair(rx, tx);
+    let scaled = scale_visible_rates(rx, tx, rate_visible_bars(win));
     let down = float_model(&scaled.rx);
     let up = float_model(&scaled.tx);
     if top {
@@ -452,6 +528,30 @@ pub(super) fn wire_sidebar_refresh_and_theme(
             if let Some(w) = weak.upgrade() {
                 refresh_sidebar(&w, &statuses, &local, &net);
             }
+        });
+    }
+    // The plot reports its real width. Rescale only when that width crosses
+    // a bar, so a drag updates the axis without rebuilding on every pixel.
+    // Deferred so a layout pass cannot re-enter refresh while a history
+    // lock is still held.
+    {
+        let weak = window.as_weak();
+        window.on_rate_plot_resized(move |px| {
+            let weak = weak.clone();
+            slint::Timer::single_shot(std::time::Duration::from_millis(0), move || {
+                let Some(w) = weak.upgrade() else { return };
+                rescale_if_plot_width_changed(&w, true, px);
+            });
+        });
+    }
+    {
+        let weak = window.as_weak();
+        window.on_latency_plot_resized(move |px| {
+            let weak = weak.clone();
+            slint::Timer::single_shot(std::time::Duration::from_millis(0), move || {
+                let Some(w) = weak.upgrade() else { return };
+                rescale_if_plot_width_changed(&w, false, px);
+            });
         });
     }
 

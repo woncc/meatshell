@@ -1,8 +1,9 @@
-//! Screenshot redaction for SSH usernames and hosts.
+//! Screenshot redaction for SSH usernames, hosts, and ports.
 //!
 //! The saved session and the live connection keep the real address. This only
 //! rewrites strings the window draws (status line, sidebar, tab title, session
-//! list) while the eye toggle is closed.
+//! list) while the eye toggle is closed. Each identity token becomes a fixed
+//! `****`, so the label does not keep `@`, `:port`, or the original length.
 
 use super::*;
 
@@ -16,26 +17,23 @@ pub(super) fn displayed_identity_text(hide: bool, raw: &str, user: &str, host: &
     }
 }
 
-/// Replace `user@host`, other `name@host` tokens, IPv4 addresses, and the
-/// known user/host words. Surrounding status words stay put.
+/// Replace `user@host[:port]`, other `name@host[:port]` tokens, IPv4
+/// addresses (with a trailing port), and the known user/host words with one
+/// fixed `****`. Surrounding status words stay put.
 pub(super) fn redact_connection_text(text: &str, user: &str, host: &str) -> String {
     let user = user.trim();
     let host = host.trim();
     let mut out = text.to_string();
     if !user.is_empty() && !host.is_empty() {
-        out = replace_bounded(
-            &out,
-            &format!("{user}@{host}"),
-            &format!("{IDENTITY_MASK}@{IDENTITY_MASK}"),
-        );
+        out = replace_bounded(&out, &format!("{user}@{host}"), IDENTITY_MASK, true);
     }
     out = mask_at_pairs(&out);
     out = mask_ipv4(&out);
     if maskable_host(host) {
-        out = replace_bounded(&out, host, IDENTITY_MASK);
+        out = replace_bounded(&out, host, IDENTITY_MASK, true);
     }
     if user.len() >= 2 {
-        out = replace_bounded(&out, user, IDENTITY_MASK);
+        out = replace_bounded(&out, user, IDENTITY_MASK, false);
     }
     out
 }
@@ -151,7 +149,7 @@ fn is_host_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_'
 }
 
-fn replace_bounded(text: &str, needle: &str, replacement: &str) -> String {
+fn replace_bounded(text: &str, needle: &str, replacement: &str, swallow_port: bool) -> String {
     if needle.is_empty() || !text.contains(needle) {
         return text.to_string();
     }
@@ -160,12 +158,15 @@ fn replace_bounded(text: &str, needle: &str, replacement: &str) -> String {
     let mut out = String::new();
     let mut i = 0;
     while i < chars.len() {
-        let end = i + needle.len();
+        let mut end = i + needle.len();
         let matches = end <= chars.len() && chars[i..end] == needle[..];
         let bounded = matches
             && (i == 0 || !is_host_char(chars[i - 1]))
             && (end == chars.len() || !is_host_char(chars[end]));
         if bounded {
+            if swallow_port {
+                end = port_suffix_end(&chars, end);
+            }
             out.push_str(replacement);
             i = end;
         } else {
@@ -174,6 +175,36 @@ fn replace_bounded(text: &str, needle: &str, replacement: &str) -> String {
         }
     }
     out
+}
+
+/// A `:port` glued to a host (`:22`, `:63322`). The port is part of the
+/// identity, so the mask swallows it instead of leaving the number on screen.
+fn port_suffix_end(chars: &[char], end: usize) -> usize {
+    if end >= chars.len() || chars[end] != ':' {
+        return end;
+    }
+    let mut pos = end + 1;
+    let start = pos;
+    while pos < chars.len() && chars[pos].is_ascii_digit() && pos - start < 5 {
+        pos += 1;
+    }
+    let digits = pos - start;
+    if digits == 0 {
+        return end;
+    }
+    if pos < chars.len() && (chars[pos].is_ascii_digit() || is_host_char(chars[pos])) {
+        return end;
+    }
+    let value: u32 = chars[start..pos]
+        .iter()
+        .collect::<String>()
+        .parse()
+        .unwrap_or(u32::MAX);
+    if (1..=65535).contains(&value) {
+        pos
+    } else {
+        end
+    }
 }
 
 fn mask_at_pairs(text: &str) -> String {
@@ -192,7 +223,7 @@ fn mask_at_pairs(text: &str) -> String {
             right += 1;
         }
         if left < i && right > i + 1 {
-            ranges.push((left, right));
+            ranges.push((left, port_suffix_end(&chars, right)));
         }
     }
     if ranges.is_empty() {
@@ -205,8 +236,6 @@ fn mask_at_pairs(text: &str) -> String {
             continue;
         }
         out.extend(chars[cursor..left].iter());
-        out.push_str(IDENTITY_MASK);
-        out.push('@');
         out.push_str(IDENTITY_MASK);
         cursor = right;
     }
@@ -221,7 +250,7 @@ fn mask_ipv4(text: &str) -> String {
     while i < chars.len() {
         if let Some(end) = ipv4_at(&chars, i) {
             out.push_str(IDENTITY_MASK);
-            i = end;
+            i = port_suffix_end(&chars, end);
         } else {
             out.push(chars[i]);
             i += 1;
@@ -272,24 +301,30 @@ mod tests {
     #[test]
     fn masks_user_host_ipv4_and_jump_without_eating_words() {
         let connected = redact_connection_text("Connected alice@10.0.0.5", "alice", "10.0.0.5");
-        assert_eq!(connected, "Connected ****@****");
+        assert_eq!(connected, "Connected ****");
         assert!(
             !connected.contains("alice") && !connected.contains("10.0.0.5"),
             "{connected}"
         );
 
         let handshake =
-            redact_connection_text("SSH handshake to db.example:22", "alice", "db.example");
-        assert_eq!(handshake, "SSH handshake to ****:22");
+            redact_connection_text("SSH handshake to db.example:63322", "alice", "db.example");
+        assert_eq!(handshake, "SSH handshake to ****");
+        assert!(!handshake.contains("63322"), "{handshake}");
+        assert!(!handshake.contains('@'), "{handshake}");
+
+        let listed = redact_connection_text("root@10.0.0.5:63322", "root", "10.0.0.5");
+        assert_eq!(listed, "****");
+        let status = redact_connection_text("SSH 握手 10.0.0.5:63322", "root", "10.0.0.5");
+        assert_eq!(status, "SSH 握手 ****");
 
         let jump = redact_connection_text(
-            "via jump host bob@bastion -> 10.1.1.9:22",
+            "via jump host bob@bastion:2222 -> 10.1.1.9:22",
             "alice",
             "10.1.1.9",
         );
-        assert!(!jump.contains("bob@bastion"), "{jump}");
-        assert!(!jump.contains("10.1.1.9"), "{jump}");
-        assert!(jump.contains("via jump host"), "{jump}");
+        assert_eq!(jump, "via jump host **** -> ****");
+        assert!(!jump.contains("2222") && !jump.contains(":22"), "{jump}");
 
         let plain = redact_connection_text("Connecting...", "alice", "10.0.0.5");
         assert_eq!(plain, "Connecting...");
