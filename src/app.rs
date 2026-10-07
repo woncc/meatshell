@@ -115,10 +115,11 @@ use crate::terminal::c0_letter_key_down;
 use crate::terminal::{
     bare_ctrl_marker_workaround_enabled, cell_prefix, clear_pending_paste, compile_output_rules,
     encode_command_bar_input, encode_mouse_event, encode_pasted_text, is_back_tab,
-    is_terminal_interrupt, key_to_pty_bytes, paste_requires_large_review,
-    should_drop_bare_ctrl_marker, store_pending_paste, take_pending_paste,
-    terminal_uses_bracketed_paste, CsiState, OutputHighlightPreset, PendingPaste, RenderGates,
-    TabRenderGate, TermBuffer, TermBufferHandle, TermBuffers, BACK_TAB_BYTES,
+    is_terminal_interrupt, key_to_pty_bytes, paste_requires_large_review, physical_shift_down,
+    shift_insert_should_paste, should_drop_bare_ctrl_marker, store_pending_paste,
+    take_pending_paste, terminal_uses_bracketed_paste, CsiState, OutputHighlightPreset,
+    PendingPaste, RenderGates, TabRenderGate, TermBuffer, TermBufferHandle, TermBuffers,
+    BACK_TAB_BYTES,
 };
 #[cfg(test)]
 use crate::terminal::{
@@ -126,7 +127,9 @@ use crate::terminal::{
     text_cell_width, vt_span_colors, CompiledOutputRule, HistSpan, Line,
 };
 #[cfg(any(target_os = "windows", test))]
-use crate::terminal::{windows_process_ctrl_release, CtrlKeySide};
+use crate::terminal::{
+    windows_process_ctrl_release, windows_unmapped_shift_side, CtrlKeySide, ShiftKeySide,
+};
 use crate::ui::*;
 use crate::webdav::WebDavAcceptAnyCertVerifier;
 

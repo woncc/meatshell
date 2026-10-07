@@ -1,6 +1,6 @@
-use crate::terminal::TermBuffers;
 #[cfg(any(target_os = "windows", test))]
-use super::state::CtrlKeySide;
+use super::state::{CtrlKeySide, ShiftKeySide};
+use crate::terminal::TermBuffers;
 
 /// Normalize clipboard line endings to the single CR byte expected for Enter
 /// by a terminal, including inside bracketed-paste payloads.
@@ -172,10 +172,7 @@ pub(crate) fn build_paste_preview(text: &str) -> String {
         }
         out.push_str(&format!(
             "{}{taken}/{total_lines}{}{total_chars}{}",
-            crate::i18n::t(
-                "…（预览已截断：显示 ",
-                "… (preview truncated: showing ",
-            ),
+            crate::i18n::t("…（预览已截断：显示 ", "… (preview truncated: showing ",),
             crate::i18n::t(" 行，共 ", " lines, "),
             crate::i18n::t(
                 " 字符；确认后粘贴完整内容）",
@@ -244,11 +241,71 @@ pub(crate) fn windows_process_ctrl_release(
     }
 }
 
-pub(crate) fn should_drop_bare_ctrl_marker(
+/// Slint 1.16 maps only `Shift(Left)` and `Shift(Right)`. On Windows, Right
+/// Shift often arrives as `NamedKey::Shift` with `KeyLocation::Standard`
+/// (`MapVirtualKeyEx` of scan 0x36 returns `VK_SHIFT`, not `VK_RSHIFT`).
+/// The backend then drops the event, `modifiers.shift` stays false, and
+/// Right Shift+Insert never pastes. Left and Right locations are left to
+/// Slint so they are not applied twice.
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn windows_unmapped_shift_side(
+    logical_key: &i_slint_backend_winit::winit::keyboard::Key,
+    physical_key: &i_slint_backend_winit::winit::keyboard::PhysicalKey,
+    location: i_slint_backend_winit::winit::keyboard::KeyLocation,
+) -> Option<ShiftKeySide> {
+    use i_slint_backend_winit::winit::keyboard::{
+        Key, KeyCode, KeyLocation, NamedKey, PhysicalKey,
+    };
+
+    if !matches!(logical_key, Key::Named(NamedKey::Shift)) {
+        return None;
+    }
+    if matches!(location, KeyLocation::Left | KeyLocation::Right) {
+        return None;
+    }
+    if matches!(physical_key, PhysicalKey::Code(KeyCode::ShiftRight)) {
+        Some(ShiftKeySide::Right)
+    } else {
+        Some(ShiftKeySide::Left)
+    }
+}
+
+/// `Key.Insert` is U+F727. Paste when Slint already reports Shift, or when
+/// the physical Shift key is down anyway (Right Shift not tracked, or an IME
+/// cleared the modifier before Insert arrived).
+pub(crate) fn shift_insert_should_paste(
     key: &str,
-    ctrl: bool,
-    workaround: bool,
+    reported_shift: bool,
+    physical_shift: bool,
 ) -> bool {
+    key == "\u{F727}" && (reported_shift || physical_shift)
+}
+
+/// Physical Shift (left, right, or the combined VK_SHIFT) as of this call.
+/// `GetAsyncKeyState` sees the key even when a low-level IME hook swallowed
+/// the WM_KEYDOWN that Slint would have used to track the modifier.
+#[cfg(windows)]
+pub(crate) fn physical_shift_down() -> bool {
+    const VK_SHIFT: i32 = 0x10;
+    const VK_LSHIFT: i32 = 0xA0;
+    const VK_RSHIFT: i32 = 0xA1;
+    #[allow(non_snake_case)]
+    extern "system" {
+        fn GetAsyncKeyState(vKey: i32) -> i16;
+    }
+    unsafe {
+        [VK_SHIFT, VK_LSHIFT, VK_RSHIFT]
+            .into_iter()
+            .any(|vk| (GetAsyncKeyState(vk) as u16) & 0x8000 != 0)
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn physical_shift_down() -> bool {
+    false
+}
+
+pub(crate) fn should_drop_bare_ctrl_marker(key: &str, ctrl: bool, workaround: bool) -> bool {
     workaround
         && ctrl
         && matches!(
@@ -400,6 +457,78 @@ pub(crate) fn c0_letter_key_down(codepoint: u32) -> bool {
 }
 
 #[cfg(test)]
+mod shift_insert_tests {
+    use super::*;
+    use i_slint_backend_winit::winit::keyboard::{
+        Key, KeyCode, KeyLocation, NamedKey, PhysicalKey,
+    };
+
+    #[test]
+    fn standard_location_right_shift_is_forwarded() {
+        assert_eq!(
+            windows_unmapped_shift_side(
+                &Key::Named(NamedKey::Shift),
+                &PhysicalKey::Code(KeyCode::ShiftRight),
+                KeyLocation::Standard,
+            ),
+            Some(ShiftKeySide::Right)
+        );
+    }
+
+    #[test]
+    fn standard_location_without_right_physical_is_left_shift() {
+        assert_eq!(
+            windows_unmapped_shift_side(
+                &Key::Named(NamedKey::Shift),
+                &PhysicalKey::Code(KeyCode::ShiftLeft),
+                KeyLocation::Standard,
+            ),
+            Some(ShiftKeySide::Left)
+        );
+    }
+
+    #[test]
+    fn already_mapped_shift_locations_stay_with_slint() {
+        assert_eq!(
+            windows_unmapped_shift_side(
+                &Key::Named(NamedKey::Shift),
+                &PhysicalKey::Code(KeyCode::ShiftLeft),
+                KeyLocation::Left,
+            ),
+            None
+        );
+        assert_eq!(
+            windows_unmapped_shift_side(
+                &Key::Named(NamedKey::Shift),
+                &PhysicalKey::Code(KeyCode::ShiftRight),
+                KeyLocation::Right,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn non_shift_keys_are_not_forwarded() {
+        assert_eq!(
+            windows_unmapped_shift_side(
+                &Key::Named(NamedKey::Insert),
+                &PhysicalKey::Code(KeyCode::Insert),
+                KeyLocation::Standard,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn shift_insert_pastes_for_either_shift_signal() {
+        assert!(shift_insert_should_paste("\u{F727}", true, false));
+        assert!(shift_insert_should_paste("\u{F727}", false, true));
+        assert!(!shift_insert_should_paste("\u{F727}", false, false));
+        assert!(!shift_insert_should_paste("v", true, true));
+    }
+}
+
+#[cfg(test)]
 mod back_tab_tests {
     use super::*;
 
@@ -439,21 +568,38 @@ mod mouse_encoding_tests {
     #[test]
     fn x10_left_press() {
         // Left press (0) at cell (1,1) → Cb=32+0=32 → ESC [ M sp ! !
-        let bytes = encode_mouse_event(0, false, 0, 0, 80, 24, vt100::MouseProtocolEncoding::Default);
+        let bytes = encode_mouse_event(
+            0,
+            false,
+            0,
+            0,
+            80,
+            24,
+            vt100::MouseProtocolEncoding::Default,
+        );
         assert_eq!(bytes, vec![0x1b, b'[', b'M', 32, 33, 33]);
     }
 
     #[test]
     fn x10_left_release() {
         // Release adds 3 to the button code → Cb=32+3=35.
-        let bytes = encode_mouse_event(0, true, 0, 0, 80, 24, vt100::MouseProtocolEncoding::Default);
+        let bytes =
+            encode_mouse_event(0, true, 0, 0, 80, 24, vt100::MouseProtocolEncoding::Default);
         assert_eq!(bytes, vec![0x1b, b'[', b'M', 35, 33, 33]);
     }
 
     #[test]
     fn x10_second_column_and_row() {
         // Cell (1,2) → Cx=33+... wait 2 → 34; row 1 → 33.
-        let bytes = encode_mouse_event(0, false, 1, 0, 80, 24, vt100::MouseProtocolEncoding::Default);
+        let bytes = encode_mouse_event(
+            0,
+            false,
+            1,
+            0,
+            80,
+            24,
+            vt100::MouseProtocolEncoding::Default,
+        );
         assert_eq!(bytes, vec![0x1b, b'[', b'M', 32, 34, 33]);
     }
 
@@ -471,8 +617,19 @@ mod mouse_encoding_tests {
 
     #[test]
     fn x10_wheel() {
-        let bytes = encode_mouse_event(64, false, 5, 3, 80, 24, vt100::MouseProtocolEncoding::Default);
-        assert_eq!(bytes, vec![0x1b, b'[', b'M', 64 + 32, 5 + 1 + 32, 3 + 1 + 32]);
+        let bytes = encode_mouse_event(
+            64,
+            false,
+            5,
+            3,
+            80,
+            24,
+            vt100::MouseProtocolEncoding::Default,
+        );
+        assert_eq!(
+            bytes,
+            vec![0x1b, b'[', b'M', 64 + 32, 5 + 1 + 32, 3 + 1 + 32]
+        );
     }
 
     #[test]
@@ -484,13 +641,25 @@ mod mouse_encoding_tests {
     #[test]
     fn coordinates_clamped_to_screen() {
         // Negative / out-of-range columns clamp into the grid.
-        let bytes = encode_mouse_event(0, false, -5, 999, 80, 24, vt100::MouseProtocolEncoding::Sgr);
+        let bytes =
+            encode_mouse_event(0, false, -5, 999, 80, 24, vt100::MouseProtocolEncoding::Sgr);
         assert_eq!(bytes, b"\x1b[<0;1;24M");
     }
 
     #[test]
     fn x10_drag_motion() {
-        let bytes = encode_mouse_event(32, false, 2, 2, 80, 24, vt100::MouseProtocolEncoding::Default);
-        assert_eq!(bytes, vec![0x1b, b'[', b'M', 32 + 32, 2 + 1 + 32, 2 + 1 + 32]);
+        let bytes = encode_mouse_event(
+            32,
+            false,
+            2,
+            2,
+            80,
+            24,
+            vt100::MouseProtocolEncoding::Default,
+        );
+        assert_eq!(
+            bytes,
+            vec![0x1b, b'[', b'M', 32 + 32, 2 + 1 + 32, 2 + 1 + 32]
+        );
     }
 }

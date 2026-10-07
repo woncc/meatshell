@@ -134,3 +134,22 @@ fn macos_ime_bare_ctrl_backspace_marker_is_platform_scoped() {
 fn alt_letter_still_sends_esc_prefix() {
     assert_eq!(key_to_pty_bytes("a", false, true, false), vec![0x1b, b'a']);
 }
+
+#[test]
+fn right_shift_with_standard_location_is_reinjected() {
+    use i_slint_backend_winit::winit::keyboard::{
+        Key, KeyCode, KeyLocation, NamedKey, PhysicalKey,
+    };
+
+    assert_eq!(
+        windows_unmapped_shift_side(
+            &Key::Named(NamedKey::Shift),
+            &PhysicalKey::Code(KeyCode::ShiftRight),
+            KeyLocation::Standard,
+        ),
+        Some(ShiftKeySide::Right)
+    );
+    assert!(shift_insert_should_paste("\u{F727}", false, true));
+    assert!(shift_insert_should_paste("\u{F727}", true, false));
+    assert!(!shift_insert_should_paste("\u{F727}", false, false));
+}

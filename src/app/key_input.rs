@@ -410,6 +410,13 @@ pub(super) fn wire_key_input(
             },
         );
 
+        // Shift+Insert paste, including Right Shift when Slint's modifier bit
+        // is missing (#1). Reported shift covers Left Shift; physical_shift_down
+        // covers a held Right Shift the modifier tracker never saw.
+        window.on_shift_insert_paste(move |key: SharedString, shift: bool| {
+            shift_insert_should_paste(key.as_str(), shift, physical_shift_down())
+        });
+
         let handles = handles.clone();
         let bufs = bufs.clone();
         let sync_input = sync_input.clone();

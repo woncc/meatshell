@@ -1156,6 +1156,8 @@ export component AppWindow inherits Window {
     // --- Clipboard callbacks ----------------------------------------------
     // Paste clipboard text into the active terminal.
     callback paste-from-clipboard(string /* tab-id */);
+    // Shift+Insert, including Right Shift when the modifier flag is missing (#1).
+    callback shift-insert-paste(string /* key */, bool /* reported shift */) -> bool;
     // Copy the current terminal screen buffer to the clipboard.
     callback copy-terminal-text(string /* tab-id */);
     // Clear a session's terminal buffer (its visible screen + scrollback).
@@ -2112,6 +2114,7 @@ export component AppWindow inherits Window {
                             root.sftp-prompt-open = true;
                         }
                         paste-from-clipboard() => { root.paste-from-clipboard(term.id); }
+                        shift-insert-paste(key, shift) => { root.shift-insert-paste(key, shift) }
                         copy-terminal-text() => { root.copy-terminal-text(term.id); }
                         clear-terminal() => { root.clear-terminal(term.id); }
                         find-query-changed(q) => { root.find-query-changed(term.id, q); }

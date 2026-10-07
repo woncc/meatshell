@@ -422,6 +422,9 @@ export component TerminalView inherits Rectangle {
     callback sftp-new-folder(string);
     callback sftp-new-file(string);
     callback paste-from-clipboard();
+    // True when this Insert key should paste. Covers Right Shift, which may
+    // not set event.modifiers.shift (#1).
+    callback shift-insert-paste(string /* key */, bool /* reported shift */) -> bool;
     callback copy-terminal-text();
     callback clear-terminal();              // wipe this session's screen buffer
     callback find-query-changed(string);    // recompute search highlights
@@ -1256,8 +1259,12 @@ export component TerminalView inherits Rectangle {
                         ime-input.focus();
                         accept
                     // ── Paste: Shift+Insert (the X11 / xterm paste convention) (#144) ──
+                    // Right Shift must paste too (#1). Slint often omits
+                    // modifiers.shift for that key; shift-insert-paste also
+                    // checks the physical Shift keys.
                     } else if (root.extra-paste-shortcuts-enabled
-                            && event.modifiers.shift && event.text == Key.Insert) {
+                            && ((event.modifiers.shift && event.text == Key.Insert)
+                                || root.shift-insert-paste(event.text, event.modifiers.shift))) {
                         root.paste-from-clipboard();
                         ime-input.focus();
                         accept

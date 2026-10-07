@@ -11,6 +11,15 @@ pub(crate) enum CtrlKeySide {
     Right,
 }
 
+/// Which Shift key to re-inject when Windows reports a Shift that Slint's
+/// winit backend does not map (`KeyLocation::Standard`, typical of Right Shift).
+#[cfg(any(target_os = "windows", test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ShiftKeySide {
+    Left,
+    Right,
+}
+
 /// Per-terminal state used by normal and alternate-screen rendering.
 pub(crate) struct TermBuffer {
     pub(crate) parser: vt100::Parser,
