@@ -39,6 +39,7 @@ fn make_buf(
         csi_state: CsiState::Normal,
         csi_pending: Vec::new(),
         raw: std::collections::VecDeque::new(),
+        suppress_alt_erase_saved: false,
         session_log: None,
         session_log_spec: None,
     }
@@ -134,8 +135,15 @@ fn enabling_session_log_mid_session_seeds_screen_and_keeps_prompt_spacing() {
 
     let text = std::fs::read_to_string(&path).unwrap();
     assert!(text.lines().any(|l| l.ends_with("] line one")), "{text}");
-    assert!(text.lines().any(|l| l.ends_with("] user@host:~$ ls")), "{text}");
-    assert!(text.lines().last().unwrap().starts_with("=== session log closed"));
+    assert!(
+        text.lines().any(|l| l.ends_with("] user@host:~$ ls")),
+        "{text}"
+    );
+    assert!(text
+        .lines()
+        .last()
+        .unwrap()
+        .starts_with("=== session log closed"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -151,4 +159,84 @@ fn session_override_off_wins_over_global_on() {
     buffer.apply_session_log(true, &dir).unwrap();
     assert!(buffer.session_log.is_none());
     assert!(!dir.exists());
+}
+
+fn history_text(buffer: &TermBuffer) -> Vec<String> {
+    buffer
+        .history
+        .iter()
+        .map(|(text, _, _)| text.clone())
+        .collect()
+}
+
+fn ingest_scrolled_lines(buffer: &mut TermBuffer) {
+    let _ = buffer.ingest(b"alpha\r\nbeta\r\ngamma\r\ndelta\r\nepsilon\r\n");
+    assert!(
+        history_text(buffer)
+            .iter()
+            .any(|line| line.contains("alpha")),
+        "static output should enter scrollback: {:?}",
+        history_text(buffer)
+    );
+}
+
+#[test]
+fn alt_screen_round_trip_keeps_prior_scrollback() {
+    let mut buffer = make_buf(4, 40, &[], &[], 0);
+    ingest_scrolled_lines(&mut buffer);
+    let _ = buffer.ingest(b"\x1b[?1049hTOP\x1b[H\x1b[2JTOP2");
+    let _ = buffer.ingest(b"\x1b[?1049l");
+    let _ = buffer.ingest(b"after\r\n");
+    assert!(
+        history_text(&buffer)
+            .iter()
+            .any(|line| line.contains("alpha")),
+        "history lost after alt screen: {:?}",
+        history_text(&buffer)
+    );
+}
+
+#[test]
+fn ncurses_rmcup_erase_saved_does_not_drop_scrollback() {
+    let mut buffer = make_buf(4, 40, &[], &[], 0);
+    ingest_scrolled_lines(&mut buffer);
+    let _ = buffer.ingest(b"\x1b[?1049hTOP");
+    let _ = buffer.ingest(b"\x1b[?1049l\x1b[3J");
+    let _ = buffer.ingest(b"after\r\n");
+    assert!(
+        history_text(&buffer)
+            .iter()
+            .any(|line| line.contains("alpha")),
+        "rmcup CSI 3 J cleared history: {:?}",
+        history_text(&buffer)
+    );
+}
+
+#[test]
+fn erase_saved_split_after_alt_exit_does_not_drop_scrollback() {
+    let mut buffer = make_buf(4, 40, &[], &[], 0);
+    ingest_scrolled_lines(&mut buffer);
+    let _ = buffer.ingest(b"\x1b[?1049hTOP");
+    let _ = buffer.ingest(b"\x1b[?1049l");
+    let _ = buffer.ingest(b"\x1b[3J");
+    let _ = buffer.ingest(b"after\r\n");
+    assert!(
+        history_text(&buffer)
+            .iter()
+            .any(|line| line.contains("alpha")),
+        "split CSI 3 J cleared history: {:?}",
+        history_text(&buffer)
+    );
+}
+
+#[test]
+fn explicit_erase_saved_on_primary_still_clears_scrollback() {
+    let mut buffer = make_buf(4, 40, &[], &[], 0);
+    ingest_scrolled_lines(&mut buffer);
+    let _ = buffer.ingest(b"\x1b[3J");
+    assert!(
+        history_text(&buffer).is_empty(),
+        "primary CSI 3 J should clear history: {:?}",
+        history_text(&buffer)
+    );
 }

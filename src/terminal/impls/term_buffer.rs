@@ -542,6 +542,37 @@ impl TermBuffer {
         replies
     }
 
+    fn chunk_touches_alt_screen(bytes: &[u8]) -> bool {
+        const SEQUENCES: &[&[u8]] = &[
+            b"\x1b[?1049h",
+            b"\x1b[?1049l",
+            b"\x1b[?1047h",
+            b"\x1b[?1047l",
+            b"\x1b[?47h",
+            b"\x1b[?47l",
+        ];
+        SEQUENCES.iter().any(|sequence| {
+            bytes
+                .windows(sequence.len())
+                .any(|window| window == *sequence)
+        })
+    }
+
+    fn strip_erase_saved_sequences(raw: &mut std::collections::VecDeque<u8>) {
+        let contiguous = raw.make_contiguous();
+        let mut kept = Vec::with_capacity(contiguous.len());
+        let mut index = 0;
+        while index < contiguous.len() {
+            if index + 4 <= contiguous.len() && &contiguous[index..index + 4] == b"\x1b[3J" {
+                index += 4;
+                continue;
+            }
+            kept.push(contiguous[index]);
+            index += 1;
+        }
+        *raw = std::collections::VecDeque::from(kept);
+    }
+
     fn ingest_display_bytes(&mut self, bytes: &[u8]) {
         if bytes.is_empty() {
             return;
@@ -553,6 +584,16 @@ impl TermBuffer {
         // scrollback, but MeatShell maintains a separate rendered history and a
         // raw replay stream for resize reflow. Drop both sides of that history,
         // including when the CSI sequence was split across SSH reads (#319).
+        //
+        // ncurses puts the same sequence in smcup/rmcup, so `top` and other
+        // alternate-screen apps would erase the primary scrollback the user
+        // still needs after they exit (#14). Suppress that case. A primary-screen
+        // CSI 3 J (the `clear` scrollback command) still wipes history.
+        let on_alt = self.parser.screen().alternate_screen();
+        let touches_alt = Self::chunk_touches_alt_screen(bytes);
+        if on_alt || touches_alt {
+            self.suppress_alt_erase_saved = true;
+        }
         let erase_saved_through = {
             let raw = self.raw.make_contiguous();
             raw.windows(4)
@@ -560,16 +601,29 @@ impl TermBuffer {
                 .map(|position| position + 4)
         };
         if let Some(end) = erase_saved_through {
-            self.raw.drain(..end);
-            self.history.clear();
-            self.prev.clear();
-            self.view_offset = 0;
-            self.sel_anchor = None;
-            self.sel_focus = None;
-            self.sel_ranges.clear();
+            if self.suppress_alt_erase_saved {
+                Self::strip_erase_saved_sequences(&mut self.raw);
+                if !on_alt && !touches_alt {
+                    // The erase arrived in a later packet after leaving the
+                    // alternate screen. One suppressed clear is enough.
+                    self.suppress_alt_erase_saved = false;
+                }
+            } else {
+                self.raw.drain(..end);
+                self.history.clear();
+                self.prev.clear();
+                self.view_offset = 0;
+                self.sel_anchor = None;
+                self.sel_focus = None;
+                self.sel_ranges.clear();
+            }
         }
         self.cap_raw();
         self.feed_batched(bytes);
+        if !self.parser.screen().alternate_screen() && !touches_alt && erase_saved_through.is_none()
+        {
+            self.suppress_alt_erase_saved = false;
+        }
     }
 
     /// Feed a (already HVP-rewritten) byte slice to vt100 in bounded batches,

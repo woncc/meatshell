@@ -53,6 +53,10 @@ pub(crate) struct TermBuffer {
     pub(crate) csi_state: CsiState,
     pub(crate) csi_pending: Vec<u8>,
     pub(crate) raw: VecDeque<u8>,
+    /// CSI 3 J from an alternate-screen app (ncurses `rmcup`) must not wipe
+    /// the primary scrollback. Set while entering, showing, or leaving that
+    /// screen, and consumed by the following erase-saved-lines sequence.
+    pub(crate) suppress_alt_erase_saved: bool,
     /// Plain-text transcript of this tab's output, when session logging is
     /// on for it (#265). Dropping the buffer (tab close) closes the file.
     pub(crate) session_log: Option<crate::terminal::SessionLogger>,
