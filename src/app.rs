@@ -107,10 +107,7 @@ use crate::resource::latency::local_metric_view;
 use crate::resource::system::{
     format_axis_rate, format_bytes_per_sec, format_load_average, format_mem,
 };
-use crate::resource::{
-    LocalGpuInfo, LocalHardwareInfo, LocalMachine, LocalSnap, NetHist, RateHist, TabStatus,
-    TabStatuses,
-};
+use crate::resource::{LocalMachine, LocalSnap, NetHist, RateHist, TabStatus, TabStatuses};
 use crate::resource::{SystemSampler, SystemSnapshot};
 use crate::session::{ConnectCtx, PendingCred, PendingHostKey, PendingMfa};
 use crate::sftp::{download_target_path, spawn_sftp, DownloadConflict, SftpHandles, SftpLastCwd};

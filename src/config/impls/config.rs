@@ -35,6 +35,7 @@ use chacha20poly1305::{
 };
 use directories::ProjectDirs;
 use rand::rngs::OsRng;
+#[cfg(test)]
 use uuid::Uuid;
 
 use super::structs::*;
@@ -44,7 +45,6 @@ mod import;
 #[path = "portable.rs"]
 mod portable;
 pub(crate) use import::ImportKind;
-pub(crate) use import::ImportSummary;
 pub(crate) use portable::{
     validate_new_passphrase, ERR_EXPORT_AUTH, ERR_EXPORT_KDF, ERR_EXPORT_TRUNCATED,
     ERR_EXPORT_VERSION, ERR_PASSPHRASE_MISMATCH, ERR_PASSPHRASE_REQUIRED, ERR_PASSPHRASE_TOO_LONG,
