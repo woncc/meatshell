@@ -1,10 +1,11 @@
 name: Release
 
 # Build native packages for Windows / Linux / macOS.
-#  - Push a tag like `v0.2.3`  -> builds all platforms and attaches the archives
+#  - Push a tag like `v0.2.3`  -> builds platforms and attaches the archives
 #    to a GitHub Release.
-#  - Run manually (workflow_dispatch) -> builds all platforms and uploads them as
+#  - Run manually (workflow_dispatch) -> builds platforms and uploads them as
 #    downloadable workflow artifacts (no release created).
+# TEMPORARY (v0.7.8): matrix restricted to windows-x86_64; flatpak/glibc228 gated off.
 
 on:
   push:
@@ -55,26 +56,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # TEMPORARY (v0.7.8): Windows-only release per user request.
+          # Full multi-platform matrix restored after Windows assets land.
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             name: windows-x86_64
             bin: meatshell.exe
-          - os: ubuntu-22.04            # build on the oldest supported runner for
-            target: x86_64-unknown-linux-gnu   # broader glibc compatibility
-            name: linux-x86_64
-            bin: meatshell
-          - os: ubuntu-22.04-arm       # free native arm64 runner (public repos)
-            target: aarch64-unknown-linux-gnu  # builds the Linux ARM64 .tar.gz (#82)
-            name: linux-aarch64
-            bin: meatshell
-          - os: macos-14               # Apple Silicon
-            target: aarch64-apple-darwin
-            name: macos-aarch64
-            bin: meatshell
-          - os: macos-14               # Cross-compile Intel Mac on Apple Silicon
-            target: x86_64-apple-darwin
-            name: macos-x86_64
-            bin: meatshell
     steps:
       - uses: actions/checkout@v4
 
@@ -306,6 +293,8 @@ jobs:
           fail_on_unmatched_files: false
 
   build-flatpak:
+    # TEMPORARY (v0.7.8): skipped for Windows-only release
+    if: false
     name: linux-x86_64-flatpak
     needs: [check-version, build]
     runs-on: ubuntu-22.04
@@ -353,6 +342,8 @@ jobs:
           fail_on_unmatched_files: true
 
   build-linux-aarch64-glibc228:
+    # TEMPORARY (v0.7.8): skipped for Windows-only release
+    if: false
     name: linux-aarch64-glibc228
     needs: check-version
     runs-on: ubuntu-22.04-arm
@@ -445,6 +436,8 @@ jobs:
           fail_on_unmatched_files: true
 
   build-linux-x86_64-glibc228:
+    # TEMPORARY (v0.7.8): skipped for Windows-only release
+    if: false
     name: linux-x86_64-glibc228
     needs: check-version
     runs-on: ubuntu-22.04
