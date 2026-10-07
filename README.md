@@ -7,6 +7,8 @@
 （资源监控侧栏、会话管理、多标签页终端）的同时，把内存占用从 400 MB+ 的
 JVM 压到几十 MB 原生级别。
 
+本 fork 相对上游的升级与特色说明见 [FORK_NOTES.md](./FORK_NOTES.md)。
+
 ## 截图
 
 <p align="center">
