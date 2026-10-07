@@ -115,16 +115,11 @@ open /Applications/meatshell.app
 
 - [ ] 会话密码改用 OS 钥匙串存储
 
-## 技术栈
+## 系统架构
 
-| 模块          | 选型                                                              |
-| ------------- | ----------------------------------------------------------------- |
-| UI            | [Slint](https://slint.dev)（纯 Rust 编译，无 GC）                 |
-| 异步运行时    | [`tokio`](https://tokio.rs)                                       |
-| SSH 协议      | [`russh`](https://crates.io/crates/russh)（无 libssh 依赖）       |
-| 系统指标      | [`sysinfo`](https://crates.io/crates/sysinfo)                     |
-| 序列化        | `serde` + `serde_json`                                            |
-| 日志          | `tracing` + `tracing-subscriber`                                  |
+![MeatShell 代码系统架构动图：GUI、CLI、MCP 经共享配置与会话层连接远端主机](assets/architecture-live.gif)
+
+基于代码提交 `87c94815cc53537cc5d0ab57815eb03a9d297504` 绘制。动画中的路径轮播、数据包和日志仅用于解释模块关系，并非实时运行数据。[查看原尺寸动图](assets/architecture-live.gif)。
 
 ## 运行
 
