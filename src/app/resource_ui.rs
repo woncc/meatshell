@@ -8,6 +8,16 @@ pub(super) fn push_ring(buf: &mut Vec<f32>, val: f32) {
     buf.push(val);
 }
 
+/// How many fixed-pitch bars fit in a sparkline of `graph_width_px`.
+/// Pitch is 3px, matching `Sparkline.bar-pitch` in `ui/widgets.slint`.
+pub(super) fn net_bars_for_graph_width(graph_width_px: f32) -> usize {
+    const BAR_PITCH_PX: f32 = 3.0;
+    if !graph_width_px.is_finite() || graph_width_px <= 0.0 {
+        return 1;
+    }
+    (graph_width_px / BAR_PITCH_PX).floor() as usize
+}
+
 /// Auto-scale a raw bytes/sec history to 0..1 against its own window peak so the
 /// sparkline always uses the full height (like FinalShell's relative graph).
 pub(super) fn normalized_model(buf: &[f32]) -> ModelRc<f32> {
@@ -104,6 +114,27 @@ pub(super) fn proc_sort(win: &AppWindow) -> (i32, bool) {
         win.get_proc_sort_col().clamp(0, 5),
         win.get_proc_sort_desc(),
     )
+}
+
+#[cfg(test)]
+mod net_history_tests {
+    use super::super::NET_HISTORY_LEN;
+    use super::net_bars_for_graph_width;
+
+    #[test]
+    fn sidebar_width_changes_time_range_not_bar_pitch() {
+        // Side-dock chrome around the sparkline is 40px (10px inset + 10px padding,
+        // each side). Default 220px therefore keeps the old 60-sample graph.
+        let bars = |sidebar_px: f32| net_bars_for_graph_width(sidebar_px - 40.0);
+        assert_eq!(bars(220.0), 60);
+        assert_eq!(bars(160.0), 40);
+        assert_eq!(bars(520.0), 160);
+        assert!(bars(160.0) < bars(220.0));
+        assert!(bars(520.0) > bars(220.0));
+        assert!(NET_HISTORY_LEN >= bars(520.0));
+        assert_eq!(net_bars_for_graph_width(0.0), 1);
+        assert_eq!(net_bars_for_graph_width(f32::NAN), 1);
+    }
 }
 
 #[cfg(test)]

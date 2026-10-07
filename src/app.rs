@@ -183,8 +183,12 @@ fn teardown_window(
     }
 }
 
-/// Number of samples kept for the sparkline.
-const NET_HISTORY_LEN: usize = 60;
+/// Samples kept for the sidebar rate graph.
+///
+/// Bars stay 3px, so the widest side sidebar (520px, about 480px of graph)
+/// can show 160 samples and a narrower one shows fewer of them.
+/// See `net_bars_for_graph_width`.
+const NET_HISTORY_LEN: usize = 160;
 
 // UI-thread handle to the process core, published by `run()` before the
 // event loop starts. Cross-thread callers (the single-instance IPC
