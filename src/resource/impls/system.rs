@@ -9,7 +9,6 @@ use sysinfo::{Disks, Networks, System};
 
 use super::system_types::{SystemSampler, SystemSnapshot};
 
-
 impl SystemSampler {
     pub fn new() -> Self {
         let mut sys = System::new_all();

@@ -18,10 +18,7 @@ fn command_bar_preserves_multiline_heredoc() {
     let (history, bytes) = encode_command_bar_input(command);
     assert_eq!(history.as_deref(), Some(command.trim_end()));
     assert_eq!(bytes, command.as_bytes());
-    assert!(!history
-        .unwrap()
-        .lines()
-        .any(|line| line.starts_with(' ')));
+    assert!(!history.unwrap().lines().any(|line| line.starts_with(' ')));
 }
 
 #[test]
@@ -84,7 +81,11 @@ fn paste_preview_stays_within_i16_safe_layout_bounds() {
         preview.lines().count()
     );
     // Longest display line is capped at 240 + ellipsis.
-    let max_line = preview.lines().map(|l| l.chars().count()).max().unwrap_or(0);
+    let max_line = preview
+        .lines()
+        .map(|l| l.chars().count())
+        .max()
+        .unwrap_or(0);
     assert!(
         max_line <= 250,
         "preview max line {max_line} exceeds i16-safe width"

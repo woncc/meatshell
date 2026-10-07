@@ -497,7 +497,10 @@ pub(super) fn session_from_draft(
         jump_session_id: String::new(),
         jump_session_ids: if kind == SessionKind::Ssh {
             crate::config::draft_jump_ids(
-                draft.jumps.iter().map(|hop| (hop.id.to_string(), hop.placeholder)),
+                draft
+                    .jumps
+                    .iter()
+                    .map(|hop| (hop.id.to_string(), hop.placeholder)),
             )
         } else {
             Vec::new()
@@ -688,9 +691,23 @@ mod serial_display_tests {
     #[test]
     fn serial_rows_show_device_and_framing_instead_of_ssh_defaults() {
         for (device, baud, bits, parity, stops, expected) in [
-            ("/dev/ttyUSB0", 115200, 8, "none", 1, "/dev/ttyUSB0 · 115200 baud · 8N1"),
+            (
+                "/dev/ttyUSB0",
+                115200,
+                8,
+                "none",
+                1,
+                "/dev/ttyUSB0 · 115200 baud · 8N1",
+            ),
             ("COM3", 9600, 7, "even", 2, "COM3 · 9600 baud · 7E2"),
-            ("/dev/ttyS0", 57600, 8, "odd", 1, "/dev/ttyS0 · 57600 baud · 8O1"),
+            (
+                "/dev/ttyS0",
+                57600,
+                8,
+                "odd",
+                1,
+                "/dev/ttyS0 · 57600 baud · 8O1",
+            ),
         ] {
             let mut session = Session::new_empty();
             session.kind = SessionKind::Serial;
