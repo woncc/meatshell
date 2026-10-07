@@ -215,8 +215,8 @@ export component LabeledInput inherits VerticalLayout {
 // --- Sparkline -------------------------------------------------------------
 // Compact horizontal bar chart used in the stats sidebar.
 // Bar pitch is fixed: a wider parent reveals more samples (more time) instead
-// of drawing thicker bars. 3px is the default sidebar density, (220px - 40px
-// chrome) / 60 samples. Newest sample stays on the right.
+// of drawing thicker bars. Newest sample stays on the right. The ring buffer
+// holds enough samples to fill the widest side panel at this pitch.
 export component Sparkline inherits Rectangle {
     in property <[float]> values;
     in property <[float]> values-up;

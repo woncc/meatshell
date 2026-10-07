@@ -102,7 +102,7 @@ use crate::config::{
 use crate::i18n::t;
 use crate::layout::{LogicalRect, TerminalWheelHit};
 use crate::resource::latency::local_metric_view;
-use crate::resource::system::{format_bytes_per_sec, format_mem};
+use crate::resource::system::{format_axis_rate, format_bytes_per_sec, format_mem};
 use crate::resource::{
     LocalGpuInfo, LocalHardwareInfo, LocalMachine, LocalSnap, NetHist, RateHist, TabStatus,
     TabStatuses,
@@ -189,10 +189,10 @@ fn teardown_window(
 
 /// Samples kept for the sidebar rate graph.
 ///
-/// Bars stay 3px, so the widest side sidebar (520px, about 480px of graph)
-/// can show 160 samples and a narrower one shows fewer of them.
-/// See `net_bars_for_graph_width`.
-const NET_HISTORY_LEN: usize = 160;
+/// Bars stay 3px. The buffer matches the widest side panel the dock drag will
+/// store, so a max-width sparkline fills end to end and a narrower one still
+/// has those samples to reveal. See `net_bars_for_graph_width`.
+const NET_HISTORY_LEN: usize = crate::resource::system::SPARKLINE_HISTORY_LEN;
 
 // UI-thread handle to the process core, published by `run()` before the
 // event loop starts. Cross-thread callers (the single-instance IPC

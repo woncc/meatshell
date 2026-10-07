@@ -27,6 +27,11 @@ pub const DIVIDER: f32 = 4.0;
 /// Clamp bounds for a stacked panel's thickness along its edge's normal
 /// (its width on a left/right edge, height on a top/bottom one).
 pub const MIN_THICK: f32 = 120.0;
+/// Absolute cap for a panel drag, in logical px. The geometry pass may show
+/// less (it keeps 38% of the dock area for the terminal) but never more than
+/// this once the user has dragged the edge. The sparkline ring buffer is
+/// sized to this width; keep it equal to `SPARKLINE_MAX_SIDEBAR_PX`.
+pub const MAX_THICK: f32 = 2600.0;
 /// Max share of the dock-area an edge stack may take. Kept well under half so
 /// the terminal never fully disappears even with opposite edges both maxed.
 const MAX_THICK_FRAC: f32 = 0.38;

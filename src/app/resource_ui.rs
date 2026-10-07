@@ -16,11 +16,7 @@ pub(super) fn push_rate(hist: &mut RateHist, rx: f32, tx: f32) {
 /// How many fixed-pitch bars fit in a sparkline of `graph_width_px`.
 /// Pitch is 3px, matching `Sparkline.bar-pitch` in `ui/widgets.slint`.
 pub(super) fn net_bars_for_graph_width(graph_width_px: f32) -> usize {
-    const BAR_PITCH_PX: f32 = 3.0;
-    if !graph_width_px.is_finite() || graph_width_px <= 0.0 {
-        return 1;
-    }
-    (graph_width_px / BAR_PITCH_PX).floor() as usize
+    crate::resource::system::sparkline_bars_for_width(graph_width_px)
 }
 
 /// Auto-scale a raw bytes/sec history to 0..1 against its own window peak so the
@@ -60,8 +56,8 @@ pub(super) fn scale_rate_pair(rx: &[f32], tx: &[f32]) -> ScaledRates {
         ("0".to_string(), "0".to_string())
     } else {
         (
-            format_bytes_per_sec(peak.round() as u64),
-            format_bytes_per_sec((peak / 2.0).round() as u64),
+            format_axis_rate(peak.round() as u64),
+            format_axis_rate((peak / 2.0).round() as u64),
         )
     };
     ScaledRates {
@@ -168,20 +164,35 @@ pub(super) fn proc_sort(win: &AppWindow) -> (i32, bool) {
 
 #[cfg(test)]
 mod net_history_tests {
+    use super::super::dock_stacks::MAX_THICK;
     use super::super::NET_HISTORY_LEN;
     use super::net_bars_for_graph_width;
+    use crate::resource::system::{
+        sparkline_bars_for_width, RATE_AXIS_GAP_PX, RATE_AXIS_LABEL_PX, SPARKLINE_EDGE_CHROME_PX,
+        SPARKLINE_MAX_SIDEBAR_PX,
+    };
 
     #[test]
     fn sidebar_width_changes_time_range_not_bar_pitch() {
-        // Side-dock chrome is 40px, plus the 50px rate axis (46px labels + 4px gap).
-        // Wider still shows more samples; the bar pitch stays 3px.
-        let bars = |sidebar_px: f32| net_bars_for_graph_width(sidebar_px - 90.0);
-        assert_eq!(bars(220.0), 43);
-        assert_eq!(bars(160.0), 23);
-        assert_eq!(bars(520.0), 143);
+        // Edge padding is 40px. The rate axis adds its label column and gap;
+        // the latency sparkline does not, so it is the wider graph.
+        let rate_chrome = SPARKLINE_EDGE_CHROME_PX + RATE_AXIS_LABEL_PX + RATE_AXIS_GAP_PX;
+        let bars = |sidebar_px: f32| net_bars_for_graph_width(sidebar_px - rate_chrome);
+        let latency_bars =
+            |sidebar_px: f32| sparkline_bars_for_width(sidebar_px - SPARKLINE_EDGE_CHROME_PX);
+        assert_eq!(bars(220.0), 40);
+        assert_eq!(bars(160.0), 20);
+        assert_eq!(bars(520.0), 140);
         assert!(bars(160.0) < bars(220.0));
         assert!(bars(520.0) > bars(220.0));
-        assert!(NET_HISTORY_LEN >= bars(520.0));
+        assert_eq!(MAX_THICK, SPARKLINE_MAX_SIDEBAR_PX);
+        // Fixed pitch: the ring covers the current maximum, including the
+        // latency chart that has no axis column. Shrinking still keeps those
+        // samples; the old 520px/160 cap does not.
+        assert!(NET_HISTORY_LEN >= bars(MAX_THICK));
+        assert_eq!(NET_HISTORY_LEN, latency_bars(MAX_THICK));
+        assert!(NET_HISTORY_LEN > latency_bars(520.0));
+        assert!(NET_HISTORY_LEN > 160);
         assert_eq!(net_bars_for_graph_width(0.0), 1);
         assert_eq!(net_bars_for_graph_width(f32::NAN), 1);
     }
@@ -189,14 +200,105 @@ mod net_history_tests {
     #[test]
     fn up_and_down_share_one_axis() {
         let scaled = super::scale_rate_pair(&[0.0, 1024.0], &[0.0, 2048.0]);
-        assert_eq!(scaled.axis_top, "2.0 KB/s");
-        assert_eq!(scaled.axis_mid, "1.0 KB/s");
+        assert_eq!(scaled.axis_top, "2K");
+        assert_eq!(scaled.axis_mid, "1K");
+        assert!(scaled.axis_top.len() <= 6);
+        assert!(scaled.axis_mid.len() <= 6);
         assert!((scaled.tx.last().copied().unwrap() - 1.0).abs() < 0.001);
         assert!((scaled.rx.last().copied().unwrap() - 0.5).abs() < 0.001);
         let idle = super::scale_rate_pair(&[0.0, f32::NAN], &[0.0]);
         assert_eq!(idle.axis_top, "0");
         assert_eq!(idle.axis_mid, "0");
         assert_eq!(idle.rx, vec![0.0, 0.0]);
+    }
+
+    /// Speed and latency each show one reading plus one 48px sparkline, and
+    /// neither row stretches. A stretching latency body is what opened the
+    /// blank band between the value and the orange chart.
+    #[test]
+    fn latency_mode_does_not_reserve_unused_vertical_space() {
+        let src = include_str!("../../ui/sidebar.slint");
+        let start = src
+            .find("if root.latency-mode : VerticalLayout {")
+            .expect("latency layout");
+        let rest = &src[start..];
+        let end = rest.find("component DiskBlock").expect("disk block");
+        let block = &rest[..end];
+        assert!(
+            block.contains("vertical-stretch: 0"),
+            "latency body must stay at its preferred height"
+        );
+        assert!(
+            block.contains("alignment: start"),
+            "extra height must not separate the latency value from its sparkline"
+        );
+        assert_eq!(block.matches("Sparkline {").count(), 1);
+        assert!(block.contains("height: 48px"));
+        assert!(
+            !block.contains("NetGraph {"),
+            "latency mode must not keep a second rate graph"
+        );
+
+        let speed = local_metric_slots(false);
+        let latency = local_metric_slots(true);
+        assert_eq!(speed.len(), latency.len(), "no extra latency slot");
+        assert!(speed
+            .iter()
+            .chain(latency.iter())
+            .all(|row| row.stretch == 0.0));
+        assert_eq!(phantom_gap(&speed, 480.0), 0.0);
+        assert_eq!(phantom_gap(&latency, 480.0), 0.0);
+        let speed_h = preferred_height(&speed);
+        let latency_h = preferred_height(&latency);
+        assert!(
+            (speed_h - latency_h).abs() < 24.0,
+            "speed {speed_h}px vs latency {latency_h}px"
+        );
+    }
+
+    struct MetricSlot {
+        stretch: f32,
+        preferred_px: f32,
+    }
+
+    fn local_metric_slots(latency_mode: bool) -> [MetricSlot; 2] {
+        if latency_mode {
+            [
+                MetricSlot {
+                    stretch: 0.0,
+                    preferred_px: 14.0,
+                },
+                MetricSlot {
+                    stretch: 0.0,
+                    preferred_px: 48.0,
+                },
+            ]
+        } else {
+            [
+                MetricSlot {
+                    stretch: 0.0,
+                    preferred_px: 16.0,
+                },
+                MetricSlot {
+                    stretch: 0.0,
+                    preferred_px: 48.0,
+                },
+            ]
+        }
+    }
+
+    fn preferred_height(rows: &[MetricSlot]) -> f32 {
+        let spacing = 3.0 * rows.len().saturating_sub(1) as f32;
+        spacing + rows.iter().map(|row| row.preferred_px).sum::<f32>()
+    }
+
+    fn phantom_gap(rows: &[MetricSlot], sidebar_extra_px: f32) -> f32 {
+        let stretch: f32 = rows.iter().map(|row| row.stretch).sum();
+        if stretch > 0.0 {
+            sidebar_extra_px
+        } else {
+            0.0
+        }
     }
 }
 

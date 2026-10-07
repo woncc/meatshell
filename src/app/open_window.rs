@@ -360,7 +360,7 @@ pub(super) fn open_window(
                 let kind = p.kind.to_string();
                 let edge = p.edge.to_string();
                 let horizontal_edge = matches!(edge.as_str(), "left" | "right");
-                let thickness = pos.clamp(MIN_THICK, 2600.0);
+                let thickness = pos.clamp(MIN_THICK, MAX_THICK);
                 if let Some(w) = weak3.upgrade() {
                     match (kind.as_str(), horizontal_edge) {
                         ("sidebar", true) => w.set_sidebar_width(thickness),

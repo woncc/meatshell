@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use super::system::format_bytes_per_sec;
 use super::system_types::SystemSnapshot;
 
-const HISTORY_LEN: usize = 160;
+const HISTORY_LEN: usize = super::system::SPARKLINE_HISTORY_LEN;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -427,6 +427,15 @@ mod tests {
         assert!(v6.args.iter().any(|arg| arg == "-6"));
         assert_eq!(v6.args.last().map(String::as_str), Some("2001:db8::1"));
         assert!(ping_spec("-n").is_none());
+    }
+
+    #[test]
+    fn latency_history_matches_the_widest_sidebar() {
+        assert_eq!(
+            super::HISTORY_LEN,
+            super::super::system::SPARKLINE_HISTORY_LEN
+        );
+        assert!(super::HISTORY_LEN > 160);
     }
 
     #[test]

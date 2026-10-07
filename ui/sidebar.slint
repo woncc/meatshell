@@ -190,14 +190,15 @@ component NetGraph inherits VerticalLayout {
     HorizontalLayout {
         spacing: 4px;
         VerticalLayout {
-            width: 46px;
+            // 6 characters (`987.6M`) at the axis font. Grows with ui-scale so
+            // the compact K/M/G labels are never ellipsized.
+            width: 56px * Theme.ui-scale;
             alignment: start;
             Text {
                 text: root.axis-top;
                 color: Theme.text-muted;
                 font-size: Theme.fs-xs;
                 horizontal-alignment: right;
-                overflow: elide;
             }
             Rectangle { vertical-stretch: 1; }
             Text {
@@ -205,7 +206,6 @@ component NetGraph inherits VerticalLayout {
                 color: Theme.text-muted;
                 font-size: Theme.fs-xs;
                 horizontal-alignment: right;
-                overflow: elide;
             }
             Rectangle { vertical-stretch: 1; }
             Text {
@@ -457,13 +457,21 @@ component NetBlock inherits VerticalLayout {
         up-color: root.up-color; down-color: root.down-color;
     }
     if root.latency-mode : VerticalLayout {
+        // Same contract as NetGraph: stay at the preferred height. Stretching
+        // this body lets the value text grow and leaves a blank band above the
+        // sparkline (or between this panel and the disk list).
+        vertical-stretch: 0;
+        alignment: start;
         spacing: 3px;
         Text {
             text: root.latency-text;
             color: Theme.text-secondary;
             font-size: Theme.fs-xs;
+            vertical-stretch: 0;
         }
         Sparkline {
+            vertical-stretch: 0;
+            horizontal-stretch: 1;
             height: 48px;
             values: root.latency-history;
             line-color: Theme.warning;
