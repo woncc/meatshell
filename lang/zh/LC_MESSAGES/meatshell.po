@@ -69,6 +69,9 @@ msgstr "使用的开源库"
 msgid "Open source"
 msgstr "开源"
 
+msgid "Fork of"
+msgstr "分叉自"
+
 msgid "Edit session"
 msgstr "编辑会话"
 

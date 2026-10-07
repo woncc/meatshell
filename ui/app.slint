@@ -481,7 +481,8 @@ export component AppWindow inherits Window {
     property <length> toolbar-y:
         (root.custom-titlebar ? 43px : 5px + root.titlebar-inset) + root.toolbar-y-off;
     in-out property <bool> about-open: false;     // centered About dialog
-    callback open-repo();                          // open the project's GitHub page
+    callback open-repo();                          // open this fork's GitHub page
+    callback open-upstream();                      // open the original yituorou/meatshell page
     in-out property <bool> shortcuts-open: false; // centered keyboard-shortcuts dialog (#103)
     in property <string> download-dir;      // preset SFTP download folder ("" = ask)
     // Download (Transfers) popup size + resize-drag state. The popup is an
@@ -4659,7 +4660,7 @@ export component AppWindow inherits Window {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             width: 520px;
-            height: 188px;
+            height: 220px;
             background: Theme.popup-bg;
             border-radius: Theme.radius-lg;
             border-width: 1px;
@@ -4729,7 +4730,7 @@ export component AppWindow inherits Window {
                         wrap: word-wrap;
                     }
 
-                    // Clickable open-source link → opens the GitHub page.
+                    // Clickable open-source link → opens this fork's GitHub page.
                     HorizontalLayout {
                         alignment: start;
                         spacing: 6px;
@@ -4745,7 +4746,7 @@ export component AppWindow inherits Window {
                             HorizontalLayout {
                                 padding-left: 4px; padding-right: 4px;
                                 Text {
-                                    text: "github.com/yituorou/meatshell";
+                                    text: "github.com/woncc/meatshell";
                                     color: Theme.accent;
                                     font-size: Theme.fs-sm;
                                     vertical-alignment: center;
@@ -4754,6 +4755,35 @@ export component AppWindow inherits Window {
                             repo-ta := TouchArea {
                                 mouse-cursor: pointer;
                                 clicked => { root.open-repo(); }
+                            }
+                        }
+                    }
+
+                    // Upstream credit. Update checks and downloads use the fork link above.
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 6px;
+                        Text {
+                            text: @tr("Fork of");
+                            color: Theme.text-muted;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                        }
+                        Rectangle {
+                            border-radius: Theme.radius-sm;
+                            background: upstream-ta.has-hover ? Theme.bg-hover : transparent;
+                            HorizontalLayout {
+                                padding-left: 4px; padding-right: 4px;
+                                Text {
+                                    text: "github.com/yituorou/meatshell";
+                                    color: Theme.accent;
+                                    font-size: Theme.fs-sm;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            upstream-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.open-upstream(); }
                             }
                         }
                     }

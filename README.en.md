@@ -8,6 +8,10 @@ FinalShell's core experience (resource-monitor sidebar, session management,
 tabbed terminals) while cutting memory use from the 400 MB+ of a JVM app down to
 the tens-of-MB range of a native binary.
 
+This repository is a fork of [yituorou/meatshell](https://github.com/yituorou/meatshell).
+Fork-only changes are described in [FORK_NOTES.md](./FORK_NOTES.md). The project
+page and installers live at [woncc/meatshell](https://github.com/woncc/meatshell).
+
 ## Screenshots
 
 <p align="center">
@@ -24,7 +28,7 @@ the tens-of-MB range of a native binary.
 
 Every `v*` tag triggers a GitHub Actions build that produces native binaries for
 **Windows / Linux / macOS**, published on the
-[Releases](https://github.com/yituorou/meatshell/releases) page.
+[Releases](https://github.com/woncc/meatshell/releases) page.
 
 ### Windows
 

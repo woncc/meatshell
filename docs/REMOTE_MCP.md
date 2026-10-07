@@ -13,16 +13,18 @@ ChatGPT/dot. No account, token, signing key, tunnel, public listener or producti
 profile is created by installing the release. Local synthetic integration tests
 do not constitute an end-to-end ChatGPT login test.
 
-## Fork update warning
+## Fork updates
 
-Fork prereleases must be updated manually from the fork's Releases page. The
-inherited desktop startup update check and Download banner still point to
-`yituorou/meatshell` upstream. The banner opens a web page and does not install
-anything automatically, but installing its download can replace fork-only
-features. Do not use that upstream banner to update a fork build. You can turn off
-“Check for updates on startup” in Settings → Interface. The headless service does
-not run the desktop updater. No build-time fork update channel currently exists;
-this feature does not silently change upstream defaults or existing user settings.
+The desktop startup update check requests this fork's latest release:
+
+`https://api.github.com/repos/woncc/meatshell/releases/latest`
+
+The Download banner opens `https://github.com/woncc/meatshell/releases/latest`
+in the system browser. It does not download or install a package by itself.
+The original project is [yituorou/meatshell](https://github.com/yituorou/meatshell);
+do not replace a fork install with an upstream release package.
+“Check for updates on startup” in Settings → Interface still controls the check.
+The headless service does not run the desktop updater.
 
 ## 1. Prepare one deliberately selected profile
 
