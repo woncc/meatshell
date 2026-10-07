@@ -19,16 +19,37 @@ pub(super) fn net_bars_for_graph_width(graph_width_px: f32) -> usize {
     crate::resource::system::sparkline_bars_for_width(graph_width_px)
 }
 
-/// Auto-scale a raw bytes/sec history to 0..1 against its own window peak so the
-/// sparkline always uses the full height (like FinalShell's relative graph).
-pub(super) fn normalized_model(buf: &[f32]) -> ModelRc<f32> {
+/// Newest `bars` samples. The sparkline draws only this suffix at a fixed
+/// pitch, so a spike older than the current sidebar width is not visible.
+pub(super) fn visible_tail(buf: &[f32], bars: usize) -> &[f32] {
+    let n = bars.max(1);
+    if buf.len() <= n {
+        buf
+    } else {
+        &buf[buf.len() - n..]
+    }
+}
+
+/// Auto-scale a raw history to 0..1 against its own peak so the sparkline
+/// uses the full height (like FinalShell's relative graph).
+pub(super) fn normalized_values(buf: &[f32]) -> Vec<f32> {
     let max = buf.iter().cloned().fold(1.0_f32, f32::max);
-    let scaled: Vec<f32> = buf.iter().map(|v| (v / max).clamp(0.0, 1.0)).collect();
-    ModelRc::from(Rc::new(VecModel::from(scaled)))
+    buf.iter().map(|v| (v / max).clamp(0.0, 1.0)).collect()
+}
+
+pub(super) fn normalized_model(buf: &[f32]) -> ModelRc<f32> {
+    ModelRc::from(Rc::new(VecModel::from(normalized_values(buf))))
+}
+
+/// Latency bars for the samples the current plot width can draw.
+pub(super) fn normalized_visible(buf: &[f32], bars: usize) -> ModelRc<f32> {
+    normalized_model(visible_tail(buf, bars))
 }
 
 /// Download and upload scaled against one shared peak, plus the Y-axis labels
-/// for that peak. Idle history labels `0` rather than a fake throughput.
+/// for that peak. Callers pass the visible window, not the whole ring: a
+/// spike that has scrolled off the left must not set the axis. Idle history
+/// labels `0` rather than a fake throughput.
 pub(super) struct ScaledRates {
     pub(super) rx: Vec<f32>,
     pub(super) tx: Vec<f32>,
@@ -66,6 +87,11 @@ pub(super) fn scale_rate_pair(rx: &[f32], tx: &[f32]) -> ScaledRates {
         axis_top,
         axis_mid,
     }
+}
+
+/// Scale only the samples the sparkline will draw for `bars` slots.
+pub(super) fn scale_visible_rates(rx: &[f32], tx: &[f32], bars: usize) -> ScaledRates {
+    scale_rate_pair(visible_tail(rx, bars), visible_tail(tx, bars))
 }
 
 pub(super) fn float_model(values: &[f32]) -> ModelRc<f32> {
@@ -210,6 +236,38 @@ mod net_history_tests {
         assert_eq!(idle.axis_top, "0");
         assert_eq!(idle.axis_mid, "0");
         assert_eq!(idle.rx, vec![0.0, 0.0]);
+    }
+
+    /// A spike that has scrolled off a narrow sidebar must not keep the axis
+    /// (or the visible bar heights) at that old peak. Widening includes it again.
+    #[test]
+    fn axis_follows_the_visible_window_not_the_ring() {
+        let spike = 8.0 * 1024.0 * 1024.0 * 1024.0;
+        let mut rx = vec![0.0; 20];
+        rx[0] = spike;
+        rx[18] = 175.0;
+        rx[19] = 50.0;
+        let tx = vec![245.0; 20];
+        let narrow = super::scale_visible_rates(&rx, &tx, 4);
+        assert_eq!(narrow.rx.len(), 4);
+        assert_eq!(narrow.tx.len(), 4);
+        assert_eq!(narrow.axis_top, "245");
+        assert!(!narrow.axis_top.contains('G'), "{}", narrow.axis_top);
+        assert!((narrow.tx[0] - 1.0).abs() < 0.001);
+        assert!((narrow.rx[2] - (175.0 / 245.0)).abs() < 0.001);
+        let wide = super::scale_visible_rates(&rx, &tx, 20);
+        assert_eq!(wide.rx.len(), 20);
+        assert_eq!(wide.axis_top, "8G");
+        assert!((wide.rx[19] - (50.0 / spike)).abs() < 0.001);
+
+        let mut latency = vec![2.0; 40];
+        latency[0] = 800.0;
+        latency[39] = 20.0;
+        let drawn = super::normalized_values(super::visible_tail(&latency, 5));
+        assert_eq!(drawn.len(), 5);
+        assert!((drawn[4] - 1.0).abs() < 0.001, "{drawn:?}");
+        let full = super::normalized_values(super::visible_tail(&latency, 40));
+        assert!((full[39] - (20.0 / 800.0)).abs() < 0.001);
     }
 
     /// Speed and latency each show one reading plus one 48px sparkline, and

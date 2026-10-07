@@ -404,6 +404,12 @@ export component AppWindow inherits Window {
     in property <string> local-latency-text: "--";
     in property <[float]> local-latency-history;
     callback set-local-latency-mode(bool);
+    // Last measured sparkline widths, in logical px. The rate axis and the
+    // latency bars scale from the samples that fit in these widths.
+    in-out property <float> rate-plot-px: 0;
+    in-out property <float> latency-plot-px: 0;
+    callback rate-plot-resized(float);
+    callback latency-plot-resized(float);
     in property <[string]> net-ifaces;      // remote NIC names for the selector
     in property <string> net-selected;      // currently selected NIC
     in property <bool> net-show-selector;   // only on a live session tab
@@ -2380,6 +2386,8 @@ export component AppWindow inherits Window {
                         root.local-latency-mode = !root.local-latency-mode;
                         root.set-local-latency-mode(root.local-latency-mode);
                     }
+                    rate-plot-resized(px) => { root.rate-plot-resized(px); }
+                    latency-plot-resized(px) => { root.latency-plot-resized(px); }
                     show-system-info() => { root.open-system-info(); }
                     show-processes() => { root.open-processes(); }
                     copy-host(h) => { root.copy-text(h); }

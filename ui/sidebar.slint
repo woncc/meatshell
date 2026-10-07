@@ -85,6 +85,7 @@ component NetGraph inherits VerticalLayout {
     in property <[string]> ifaces;
     in property <string> selected;
     callback iface-selected(string);
+    callback plot-resized(float);
 
     // Stay at preferred height; without this the inherited VerticalLayout grabs
     // a stretch share of the sidebar and balloons the sparkline into blank space.
@@ -222,6 +223,7 @@ component NetGraph inherits VerticalLayout {
             values-up: root.history-up;
             line-color: root.down-color;
             up-color: root.up-color;
+            resized(px) => { root.plot-resized(px); }
         }
     }
 }
@@ -418,6 +420,8 @@ component NetBlock inherits VerticalLayout {
     in property <[float]> latency-history;
     callback select-net-iface(string);
     callback toggle-local-metric();
+    callback rate-plot-resized(float);
+    callback latency-plot-resized(float);
     spacing: 6px;
     NetGraph {
         up-text: root.net-top-up; down-text: root.net-top-down; history: root.net-top-history;
@@ -426,6 +430,7 @@ component NetBlock inherits VerticalLayout {
         up-color: root.up-color; down-color: root.down-color;
         show-selector: root.net-show-selector; ifaces: root.net-ifaces; selected: root.net-selected;
         iface-selected(i) => { root.select-net-iface(i); }
+        plot-resized(px) => { root.rate-plot-resized(px); }
     }
     Rectangle {
         height: 16px;
@@ -475,6 +480,7 @@ component NetBlock inherits VerticalLayout {
             height: 48px;
             values: root.latency-history;
             line-color: Theme.warning;
+            resized(px) => { root.latency-plot-resized(px); }
         }
     }
 }
@@ -585,6 +591,8 @@ export component Sidebar inherits Rectangle {
     callback show-system-info();         // open the system-information window
     callback show-processes();           // open the process monitor popup (#23)
     callback copy-host(string);          // copy the connection IP/host to clipboard (#192)
+    callback rate-plot-resized(float);
+    callback latency-plot-resized(float);
     // Drag-to-dock: the header strip is a grab handle; coordinates are reported
     // in window space so the AppWindow can compute the target edge (#dock).
     callback dock-drag-move(length /* abs-x */, length /* abs-y */);
@@ -676,6 +684,8 @@ export component Sidebar inherits Rectangle {
                 latency-history: root.local-latency-history;
                 select-net-iface(i) => { root.select-net-iface(i); }
                 toggle-local-metric() => { root.toggle-local-metric(); }
+                rate-plot-resized(px) => { root.rate-plot-resized(px); }
+                latency-plot-resized(px) => { root.latency-plot-resized(px); }
             }
             Rectangle { height: 1px; background: Theme.border-subtle; }
             DiskBlock { vertical-stretch: 1; disks: root.disks; }
@@ -744,6 +754,8 @@ export component Sidebar inherits Rectangle {
                 latency-history: root.local-latency-history;
                 select-net-iface(i) => { root.select-net-iface(i); }
                 toggle-local-metric() => { root.toggle-local-metric(); }
+                rate-plot-resized(px) => { root.rate-plot-resized(px); }
+                latency-plot-resized(px) => { root.latency-plot-resized(px); }
             }
             Rectangle { width: 1px; background: Theme.border-subtle; }
             DiskBlock { horizontal-stretch: 1; disks: root.disks; }

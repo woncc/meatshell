@@ -242,6 +242,13 @@ export component Sparkline inherits Rectangle {
     in property <brush> line-color: Theme.accent;
     in property <brush> up-color: Theme.success;
     in property <length> bar-pitch: 3px;
+    // The parent rescales from this width so the Y axis matches the bars
+    // actually drawn, not samples that have scrolled off the left.
+    callback resized(float);
+    property <float> plot-px: self.width / 1px;
+    changed plot-px => {
+        if (root.plot-px > 1) { root.resized(root.plot-px); }
+    }
     property <bool> split: root.values-up.length > 0;
     property <int> capacity: max(1, floor(self.width / root.bar-pitch));
     property <int> shown: min(root.values.length, root.capacity);
