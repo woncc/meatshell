@@ -325,6 +325,8 @@ pub(super) fn wire_layout_prefs(ctx: &WinCtx) {
             .into(),
         );
         window.set_local_latency_text(if local_latency { "--" } else { "" }.into());
+        apply_stored_rate_color(window, true, &s.net_up_color());
+        apply_stored_rate_color(window, false, &s.net_down_color());
         // Restore the persisted panel docking layout (#dock).
         window.set_sidebar_width(s.sidebar_width());
         window.set_sidebar_height(s.sidebar_height());
@@ -392,6 +394,20 @@ pub(super) fn wire_layout_prefs(ctx: &WinCtx) {
                 );
                 w.invoke_refresh_sidebar();
             }
+        });
+    }
+    {
+        let store = store.clone();
+        let weak = window.as_weak();
+        window.on_set_net_up_color(move |value: SharedString| {
+            store_rate_color(&store, &weak, true, value.as_str())
+        });
+    }
+    {
+        let store = store.clone();
+        let weak = window.as_weak();
+        window.on_set_net_down_color(move |value: SharedString| {
+            store_rate_color(&store, &weak, false, value.as_str())
         });
     }
     {
@@ -858,4 +874,57 @@ pub(super) fn wire_ui_scale_and_wallpaper(ctx: &WinCtx) {
             }
         });
     }
+}
+
+fn apply_stored_rate_color(window: &AppWindow, upload: bool, stored: &str) {
+    let Some(color) = parse_hex_color(stored) else {
+        return;
+    };
+    if upload {
+        window.set_net_up_custom(true);
+        window.set_net_up_color(color);
+        window.set_net_up_color_hex(stored.into());
+    } else {
+        window.set_net_down_custom(true);
+        window.set_net_down_color(color);
+        window.set_net_down_color_hex(stored.into());
+    }
+}
+
+fn store_rate_color(
+    store: &Rc<RefCell<ConfigStore>>,
+    weak: &slint::Weak<AppWindow>,
+    upload: bool,
+    value: &str,
+) -> bool {
+    let custom = !value.trim().is_empty();
+    let color = if custom {
+        let Some(color) = parse_hex_color(value) else {
+            return false;
+        };
+        Some(color)
+    } else {
+        None
+    };
+    {
+        let mut saved = store.borrow_mut();
+        if !saved.set_net_rate_color(upload, value) {
+            return false;
+        }
+        let _ = saved.save();
+    }
+    if let Some(window) = weak.upgrade() {
+        if upload {
+            window.set_net_up_custom(custom);
+            if let Some(color) = color {
+                window.set_net_up_color(color);
+            }
+        } else {
+            window.set_net_down_custom(custom);
+            if let Some(color) = color {
+                window.set_net_down_color(color);
+            }
+        }
+    }
+    true
 }

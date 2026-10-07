@@ -379,6 +379,12 @@ export component InterfacePanel inherits Rectangle {
     in-out property <bool> sftp-follow-cd;
     in-out property <bool> collapse-sidebar-default;
     in-out property <bool> local-latency-mode: false;
+    in-out property <string> net-up-color-hex: "";
+    in-out property <string> net-down-color-hex: "";
+    in property <color> net-up-color: #34c759;
+    in property <color> net-down-color: #4a90e2;
+    in property <bool> net-up-custom: false;
+    in property <bool> net-down-custom: false;
     in-out property <bool> collapse-sftp-default;
     in-out property <bool> sync-upload-enabled;
     in-out property <bool> webdav-enabled;
@@ -440,6 +446,8 @@ export component InterfacePanel inherits Rectangle {
     callback set-sftp-follow-cd(bool);
     callback set-collapse-sidebar-default(bool);
     callback set-local-latency-mode(bool);
+    callback set-net-up-color(string) -> bool;
+    callback set-net-down-color(string) -> bool;
     callback set-collapse-sftp-default(bool);
     callback set-sync-upload-enabled(bool);
     callback save-webdav-settings(bool, string, string, string, string, bool);
@@ -1417,6 +1425,28 @@ export component InterfacePanel inherits Rectangle {
                     Switch {
                         on: root.local-latency-mode;
                         toggled(v) => { root.local-latency-mode = v; root.set-local-latency-mode(v); }
+                    }
+                }
+                SettingRow {
+                    label: root.lang-en ? "Upload color" : "上行颜色";
+                    desc: root.lang-en
+                        ? "Default is green, different from download. Clear the field to restore it."
+                        : "默认绿色，和下行不同。清空输入恢复默认。";
+                    CursorColorInput {
+                        value <=> root.net-up-color-hex;
+                        preview-color: root.net-up-custom ? root.net-up-color : #34c759;
+                        apply-color(v) => { root.set-net-up-color(v) }
+                    }
+                }
+                SettingRow {
+                    label: root.lang-en ? "Download color" : "下行颜色";
+                    desc: root.lang-en
+                        ? "Default is blue. Clear the field to restore it."
+                        : "默认蓝色。清空输入恢复默认。";
+                    CursorColorInput {
+                        value <=> root.net-down-color-hex;
+                        preview-color: root.net-down-custom ? root.net-down-color : #4a90e2;
+                        apply-color(v) => { root.set-net-down-color(v) }
                     }
                 }
                 SettingRow {

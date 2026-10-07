@@ -8,6 +8,11 @@ pub(super) fn push_ring(buf: &mut Vec<f32>, val: f32) {
     buf.push(val);
 }
 
+pub(super) fn push_rate(hist: &mut RateHist, rx: f32, tx: f32) {
+    push_ring(&mut hist.rx, rx);
+    push_ring(&mut hist.tx, tx);
+}
+
 /// How many fixed-pitch bars fit in a sparkline of `graph_width_px`.
 /// Pitch is 3px, matching `Sparkline.bar-pitch` in `ui/widgets.slint`.
 pub(super) fn net_bars_for_graph_width(graph_width_px: f32) -> usize {
@@ -24,6 +29,51 @@ pub(super) fn normalized_model(buf: &[f32]) -> ModelRc<f32> {
     let max = buf.iter().cloned().fold(1.0_f32, f32::max);
     let scaled: Vec<f32> = buf.iter().map(|v| (v / max).clamp(0.0, 1.0)).collect();
     ModelRc::from(Rc::new(VecModel::from(scaled)))
+}
+
+/// Download and upload scaled against one shared peak, plus the Y-axis labels
+/// for that peak. Idle history labels `0` rather than a fake throughput.
+pub(super) struct ScaledRates {
+    pub(super) rx: Vec<f32>,
+    pub(super) tx: Vec<f32>,
+    pub(super) axis_top: String,
+    pub(super) axis_mid: String,
+}
+
+pub(super) fn scale_rate_pair(rx: &[f32], tx: &[f32]) -> ScaledRates {
+    let peak = rx
+        .iter()
+        .chain(tx.iter())
+        .copied()
+        .filter(|v| v.is_finite())
+        .fold(0.0_f32, f32::max)
+        .max(0.0);
+    let denom = peak.max(1.0);
+    let scale = |v: f32| {
+        if v.is_finite() {
+            (v / denom).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    };
+    let (axis_top, axis_mid) = if peak <= 0.0 {
+        ("0".to_string(), "0".to_string())
+    } else {
+        (
+            format_bytes_per_sec(peak.round() as u64),
+            format_bytes_per_sec((peak / 2.0).round() as u64),
+        )
+    };
+    ScaledRates {
+        rx: rx.iter().copied().map(scale).collect(),
+        tx: tx.iter().copied().map(scale).collect(),
+        axis_top,
+        axis_mid,
+    }
+}
+
+pub(super) fn float_model(values: &[f32]) -> ModelRc<f32> {
+    ModelRc::from(Rc::new(VecModel::from(values.to_vec())))
 }
 
 /// Build the filesystem-usage model (path, "avail/total", used fraction).
@@ -123,17 +173,30 @@ mod net_history_tests {
 
     #[test]
     fn sidebar_width_changes_time_range_not_bar_pitch() {
-        // Side-dock chrome around the sparkline is 40px (10px inset + 10px padding,
-        // each side). Default 220px therefore keeps the old 60-sample graph.
-        let bars = |sidebar_px: f32| net_bars_for_graph_width(sidebar_px - 40.0);
-        assert_eq!(bars(220.0), 60);
-        assert_eq!(bars(160.0), 40);
-        assert_eq!(bars(520.0), 160);
+        // Side-dock chrome is 40px, plus the 50px rate axis (46px labels + 4px gap).
+        // Wider still shows more samples; the bar pitch stays 3px.
+        let bars = |sidebar_px: f32| net_bars_for_graph_width(sidebar_px - 90.0);
+        assert_eq!(bars(220.0), 43);
+        assert_eq!(bars(160.0), 23);
+        assert_eq!(bars(520.0), 143);
         assert!(bars(160.0) < bars(220.0));
         assert!(bars(520.0) > bars(220.0));
         assert!(NET_HISTORY_LEN >= bars(520.0));
         assert_eq!(net_bars_for_graph_width(0.0), 1);
         assert_eq!(net_bars_for_graph_width(f32::NAN), 1);
+    }
+
+    #[test]
+    fn up_and_down_share_one_axis() {
+        let scaled = super::scale_rate_pair(&[0.0, 1024.0], &[0.0, 2048.0]);
+        assert_eq!(scaled.axis_top, "2.0 KB/s");
+        assert_eq!(scaled.axis_mid, "1.0 KB/s");
+        assert!((scaled.tx.last().copied().unwrap() - 1.0).abs() < 0.001);
+        assert!((scaled.rx.last().copied().unwrap() - 0.5).abs() < 0.001);
+        let idle = super::scale_rate_pair(&[0.0, f32::NAN], &[0.0]);
+        assert_eq!(idle.axis_top, "0");
+        assert_eq!(idle.axis_mid, "0");
+        assert_eq!(idle.rx, vec![0.0, 0.0]);
     }
 }
 

@@ -70,7 +70,8 @@ pub(crate) struct TabStatus {
     pub(crate) swap_total_kib: u64,
     pub(crate) net: Vec<(String, u64, u64)>,
     pub(crate) selected_iface: String,
-    pub(crate) net_hist: Vec<f32>,
+    /// Download (rx) and upload (tx) samples, aligned, bytes/sec.
+    pub(crate) net_hist: RateHist,
     pub(crate) disks: Vec<(String, u64, u64)>,
     pub(crate) procs: Vec<ProcInfo>,
     pub(crate) sys: SystemDetails,
@@ -79,5 +80,30 @@ pub(crate) struct TabStatus {
     pub(crate) probe_host: String,
 }
 
+/// Aligned download/upload samples for one rate graph.
+#[derive(Clone, Debug)]
+pub(crate) struct RateHist {
+    pub(crate) rx: Vec<f32>,
+    pub(crate) tx: Vec<f32>,
+}
+
+impl RateHist {
+    pub(crate) fn blank(len: usize) -> Self {
+        Self {
+            rx: vec![0.0; len],
+            tx: vec![0.0; len],
+        }
+    }
+}
+
+impl Default for RateHist {
+    fn default() -> Self {
+        Self {
+            rx: Vec::new(),
+            tx: Vec::new(),
+        }
+    }
+}
+
 pub(crate) type TabStatuses = Arc<Mutex<HashMap<String, TabStatus>>>;
-pub(crate) type NetHist = Arc<Mutex<Vec<f32>>>;
+pub(crate) type NetHist = Arc<Mutex<RateHist>>;

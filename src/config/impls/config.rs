@@ -1266,6 +1266,35 @@ impl ConfigStore {
         self.cache.local_panel_metric = if latency { "latency" } else { "speed" }.into();
     }
 
+    /// Upload color override. Empty means the theme green (distinct from download).
+    pub fn net_up_color(&self) -> String {
+        normalize_hex_color(&self.cache.net_up_color).unwrap_or_default()
+    }
+
+    /// Download color override. Empty means the theme blue.
+    pub fn net_down_color(&self) -> String {
+        normalize_hex_color(&self.cache.net_down_color).unwrap_or_default()
+    }
+
+    /// Store a rate-graph color. An empty string clears the override.
+    /// Returns false when the text is not a 6-digit hex color.
+    pub fn set_net_rate_color(&mut self, upload: bool, color: &str) -> bool {
+        let stored = if color.trim().is_empty() {
+            String::new()
+        } else {
+            let Some(normalized) = normalize_hex_color(color) else {
+                return false;
+            };
+            normalized
+        };
+        if upload {
+            self.cache.net_up_color = stored;
+        } else {
+            self.cache.net_down_color = stored;
+        }
+        true
+    }
+
     /// Resource / SFTP panel docking geometry, persisted across restarts (#dock).
     /// Sizes fall back to their defaults when unset/zero; docks fall back to a
     /// sensible edge when the stored string is empty.
@@ -2332,6 +2361,25 @@ mod tests {
         assert_eq!(store.cache.local_panel_metric, "speed");
         store.cache.local_panel_metric = "nope".into();
         assert!(!store.local_panel_latency());
+    }
+
+    #[test]
+    fn rate_colors_default_blank_and_round_trip() {
+        let missing: ConfigFile = serde_json::from_str("{}").unwrap();
+        assert!(missing.net_up_color.is_empty());
+        assert!(missing.net_down_color.is_empty());
+        let mut store = temp_store();
+        assert!(store.net_up_color().is_empty());
+        assert!(store.net_down_color().is_empty());
+        assert!(store.set_net_rate_color(true, "#34c759"));
+        assert!(store.set_net_rate_color(false, "4a90e2"));
+        assert_eq!(store.net_up_color(), "#34C759");
+        assert_eq!(store.net_down_color(), "#4A90E2");
+        assert_ne!(store.net_up_color(), store.net_down_color());
+        assert!(!store.set_net_rate_color(true, "nope"));
+        assert_eq!(store.net_up_color(), "#34C759");
+        assert!(store.set_net_rate_color(true, ""));
+        assert!(store.net_up_color().is_empty());
     }
 
     #[test]

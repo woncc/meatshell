@@ -474,7 +474,7 @@ pub(super) fn open_window(
     // and the local machine's network history (bottom sparkline).
     let tab_statuses: TabStatuses = Arc::new(Mutex::new(HashMap::new()));
     let local_snap: LocalSnap = Arc::new(LocalMachine::new());
-    let local_net_hist: NetHist = Arc::new(Mutex::new(vec![0.0; NET_HISTORY_LEN]));
+    let local_net_hist: NetHist = Arc::new(Mutex::new(RateHist::blank(NET_HISTORY_LEN)));
 
     // Per-tab display-name overrides set via "Rename session" (tab context
     // menu). Display only — the saved session keeps its own name.
@@ -826,7 +826,11 @@ pub(super) fn open_window(
             };
             // Append the raw local throughput to the bottom-graph ring buffer
             // (normalisation happens at display time so the graph auto-scales).
-            push_ring(&mut tick_net.lock().unwrap(), snap.net_bytes_per_sec as f32);
+            push_rate(
+                &mut tick_net.lock().unwrap(),
+                snap.net_rx_per_sec as f32,
+                snap.net_tx_per_sec as f32,
+            );
             // Stash the local sample; the sidebar shows it on the welcome tab
             // and in the bottom network graph.
             *tick_local.snap.lock().unwrap() = snap.clone();

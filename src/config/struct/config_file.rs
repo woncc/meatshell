@@ -231,6 +231,12 @@ pub struct ConfigFile {
     /// to the active SSH or Telnet host. Missing or unknown values stay on speed.
     #[serde(default = "default_local_panel_metric")]
     pub local_panel_metric: String,
+    /// Custom upload color for the rate graph. Empty keeps the theme green.
+    #[serde(default)]
+    pub net_up_color: String,
+    /// Custom download color for the rate graph. Empty keeps the theme blue.
+    #[serde(default)]
+    pub net_down_color: String,
     /// Resource-panel docking: size when docked top/bottom, and which edge it is
     /// docked to (left|right|top|bottom). Persisted so the layout sticks (#dock).
     #[serde(default = "default_sidebar_height")]

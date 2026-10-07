@@ -379,6 +379,23 @@ export component AppWindow inherits Window {
     in property <string> net-bot-up;
     in property <string> net-bot-down;
     in property <[float]> net-bot-history;
+    in property <[float]> net-top-up-history;
+    in property <string> net-top-axis-top: "0";
+    in property <string> net-top-axis-mid: "0";
+    in property <[float]> net-bot-up-history;
+    in property <string> net-bot-axis-top: "0";
+    in property <string> net-bot-axis-mid: "0";
+    // Empty override keeps Theme.success (upload) and Theme.accent (download).
+    in property <bool> net-up-custom: false;
+    in property <color> net-up-color: #34c759;
+    in property <bool> net-down-custom: false;
+    in property <color> net-down-color: #4a90e2;
+    in-out property <string> net-up-color-hex: "";
+    in-out property <string> net-down-color-hex: "";
+    property <brush> net-up-brush: root.net-up-custom ? root.net-up-color : Theme.success;
+    property <brush> net-down-brush: root.net-down-custom ? root.net-down-color : Theme.accent;
+    callback set-net-up-color(string) -> bool;
+    callback set-net-down-color(string) -> bool;
     in-out property <bool> local-latency-mode: false;
     in property <string> local-metric-label: "Local speed";
     in property <string> local-latency-text: "--";
@@ -1703,7 +1720,15 @@ export component AppWindow inherits Window {
                 net-top-history: root.net-top-history;
                 net-bot-up: root.net-bot-up;
                 net-bot-down: root.net-bot-down;
+                net-top-up-history: root.net-top-up-history;
+                net-top-axis-top: root.net-top-axis-top;
+                net-top-axis-mid: root.net-top-axis-mid;
                 net-bot-history: root.net-bot-history;
+                net-bot-up-history: root.net-bot-up-history;
+                net-bot-axis-top: root.net-bot-axis-top;
+                net-bot-axis-mid: root.net-bot-axis-mid;
+                net-up-color: root.net-up-brush;
+                net-down-color: root.net-down-brush;
                 local-latency-mode: root.local-latency-mode;
                 local-metric-label: root.local-metric-label;
                 local-latency-text: root.local-latency-text;
@@ -2323,7 +2348,15 @@ export component AppWindow inherits Window {
                     net-top-history: root.net-top-history;
                     net-bot-up: root.net-bot-up;
                     net-bot-down: root.net-bot-down;
+                    net-top-up-history: root.net-top-up-history;
+                    net-top-axis-top: root.net-top-axis-top;
+                    net-top-axis-mid: root.net-top-axis-mid;
                     net-bot-history: root.net-bot-history;
+                    net-bot-up-history: root.net-bot-up-history;
+                    net-bot-axis-top: root.net-bot-axis-top;
+                    net-bot-axis-mid: root.net-bot-axis-mid;
+                    net-up-color: root.net-up-brush;
+                    net-down-color: root.net-down-brush;
                     local-latency-mode: root.local-latency-mode;
                     local-metric-label: root.local-metric-label;
                     local-latency-text: root.local-latency-text;
@@ -5213,6 +5246,12 @@ export component AppWindow inherits Window {
                     sftp-follow-cd <=> root.sftp-follow-cd;
                     collapse-sidebar-default <=> root.collapse-sidebar-default;
                     local-latency-mode <=> root.local-latency-mode;
+                    net-up-color-hex <=> root.net-up-color-hex;
+                    net-down-color-hex <=> root.net-down-color-hex;
+                    net-up-color: root.net-up-color;
+                    net-down-color: root.net-down-color;
+                    net-up-custom: root.net-up-custom;
+                    net-down-custom: root.net-down-custom;
                     collapse-sftp-default <=> root.collapse-sftp-default;
                     sync-upload-enabled <=> root.sync-upload-enabled;
                     webdav-enabled <=> root.webdav-enabled;
@@ -5269,6 +5308,8 @@ export component AppWindow inherits Window {
                     set-sftp-follow-cd(v) => { root.set-sftp-follow-cd(v); }
                     set-collapse-sidebar-default(v) => { root.set-collapse-sidebar-default(v); }
                     set-local-latency-mode(v) => { root.set-local-latency-mode(v); }
+                    set-net-up-color(v) => { root.set-net-up-color(v) }
+                    set-net-down-color(v) => { root.set-net-down-color(v) }
                     set-collapse-sftp-default(v) => { root.set-collapse-sftp-default(v); }
                     set-sync-upload-enabled(v) => { root.set-sync-upload-enabled(v); }
                     save-webdav-settings(enabled, url, username, password, remote-path, accept-invalid-certs) => {

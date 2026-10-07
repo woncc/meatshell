@@ -7,5 +7,6 @@ mod system_types;
 
 pub(crate) use latency::{LocalMachine, LocalSnap};
 pub(crate) use system_types::{
-    LocalGpuInfo, LocalHardwareInfo, NetHist, SystemSampler, SystemSnapshot, TabStatus, TabStatuses,
+    LocalGpuInfo, LocalHardwareInfo, NetHist, RateHist, SystemSampler, SystemSnapshot, TabStatus,
+    TabStatuses,
 };

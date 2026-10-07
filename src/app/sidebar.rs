@@ -68,7 +68,10 @@ pub(super) fn refresh_sidebar(
     let set_top_local = |win: &AppWindow| {
         win.set_net_top_up(format_bytes_per_sec(snap.net_tx_per_sec).into());
         win.set_net_top_down(format_bytes_per_sec(snap.net_rx_per_sec).into());
-        win.set_net_top_history(normalized_model(&local_net_hist.lock().unwrap()));
+        {
+            let hist = local_net_hist.lock().unwrap();
+            apply_rate_series(win, true, &hist.rx, &hist.tx);
+        }
         win.set_net_show_selector(false);
         win.set_net_selected("".into());
         win.set_net_ifaces(ModelRc::from(Rc::new(VecModel::<SharedString>::default())));
@@ -273,7 +276,7 @@ pub(super) fn refresh_sidebar(
             let (name, rx, tx) = selected_iface(&st);
             win.set_net_top_up(format_bytes_per_sec(tx).into());
             win.set_net_top_down(format_bytes_per_sec(rx).into());
-            win.set_net_top_history(normalized_model(&st.net_hist));
+            apply_rate_series(win, true, &st.net_hist.rx, &st.net_hist.tx);
             win.set_net_show_selector(!st.net.is_empty());
             win.set_net_selected(name.into());
             let ifaces: Vec<SharedString> = st.net.iter().map(|e| e.0.clone().into()).collect();
@@ -382,7 +385,25 @@ fn apply_local_panel(
     if latency_mode {
         win.set_local_latency_history(normalized_model(&local.latency.history()));
     } else {
-        win.set_net_bot_history(normalized_model(&local_net_hist.lock().unwrap()));
+        let hist = local_net_hist.lock().unwrap();
+        apply_rate_series(win, false, &hist.rx, &hist.tx);
+    }
+}
+
+fn apply_rate_series(win: &AppWindow, top: bool, rx: &[f32], tx: &[f32]) {
+    let scaled = scale_rate_pair(rx, tx);
+    let down = float_model(&scaled.rx);
+    let up = float_model(&scaled.tx);
+    if top {
+        win.set_net_top_history(down);
+        win.set_net_top_up_history(up);
+        win.set_net_top_axis_top(scaled.axis_top.into());
+        win.set_net_top_axis_mid(scaled.axis_mid.into());
+    } else {
+        win.set_net_bot_history(down);
+        win.set_net_bot_up_history(up);
+        win.set_net_bot_axis_top(scaled.axis_top.into());
+        win.set_net_bot_axis_mid(scaled.axis_mid.into());
     }
 }
 

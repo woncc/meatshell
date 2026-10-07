@@ -168,7 +168,7 @@ pub(super) fn apply_session_event_to_window(
                 }
                 // Append the selected interface's total rate to its sparkline.
                 let (_, rx, tx) = selected_iface(st);
-                push_ring(&mut st.net_hist, (rx + tx) as f32);
+                push_rate(&mut st.net_hist, rx as f32, tx as f32);
             }
             if win.get_active_tab_id().as_str() == tab_id
                 && (sidebar_updates_visible(win) || win.get_system_info_window_open())

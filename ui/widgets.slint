@@ -219,12 +219,16 @@ export component LabeledInput inherits VerticalLayout {
 // chrome) / 60 samples. Newest sample stays on the right.
 export component Sparkline inherits Rectangle {
     in property <[float]> values;
+    in property <[float]> values-up;
     in property <brush> line-color: Theme.accent;
+    in property <brush> up-color: Theme.success;
     in property <length> bar-pitch: 3px;
+    property <bool> split: root.values-up.length > 0;
     property <int> capacity: max(1, floor(self.width / root.bar-pitch));
     property <int> shown: min(root.values.length, root.capacity);
     property <int> first: root.values.length - root.shown;
     property <length> origin: self.width - root.shown * root.bar-pitch;
+    property <length> bar-width: root.split ? 1px : max(1px, root.bar-pitch - 1px);
 
     background: Theme.bg-root;
     border-radius: Theme.radius-sm;
@@ -234,9 +238,18 @@ export component Sparkline inherits Rectangle {
         visible: i >= root.first;
         x: root.origin + (i - root.first) * root.bar-pitch;
         y: parent.height - (parent.height * clamp(v, 0.0, 1.0));
-        width: max(1px, root.bar-pitch - 1px);
+        width: root.bar-width;
         height: parent.height * clamp(v, 0.0, 1.0);
         background: line-color.with-alpha(0.85);
+        border-radius: 1px;
+    }
+    for u[i] in values-up : Rectangle {
+        visible: root.split && i >= root.first;
+        x: root.origin + (i - root.first) * root.bar-pitch + 1px;
+        y: parent.height - (parent.height * clamp(u, 0.0, 1.0));
+        width: 1px;
+        height: parent.height * clamp(u, 0.0, 1.0);
+        background: root.up-color.with-alpha(0.9);
         border-radius: 1px;
     }
 }

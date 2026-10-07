@@ -21,7 +21,7 @@ pub(super) fn wire_downloads_and_links(
             let active = w.get_active_tab_id().to_string();
             if let Some(st) = statuses.lock().unwrap().get_mut(&active) {
                 st.selected_iface = iface.to_string();
-                st.net_hist = vec![0.0; NET_HISTORY_LEN]; // reset graph for new NIC
+                st.net_hist = RateHist::blank(NET_HISTORY_LEN);
             }
             refresh_sidebar(&w, &statuses, &local, &net);
         });

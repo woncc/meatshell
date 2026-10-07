@@ -102,7 +102,8 @@ use crate::layout::{LogicalRect, TerminalWheelHit};
 use crate::resource::latency::local_metric_view;
 use crate::resource::system::{format_bytes_per_sec, format_mem};
 use crate::resource::{
-    LocalGpuInfo, LocalHardwareInfo, LocalMachine, LocalSnap, NetHist, TabStatus, TabStatuses,
+    LocalGpuInfo, LocalHardwareInfo, LocalMachine, LocalSnap, NetHist, RateHist, TabStatus,
+    TabStatuses,
 };
 use crate::resource::{SystemSampler, SystemSnapshot};
 use crate::session::{ConnectCtx, PendingCred, PendingHostKey, PendingMfa};
