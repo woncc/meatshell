@@ -7,7 +7,7 @@
 （资源监控侧栏、会话管理、多标签页终端）的同时，把内存占用从 400 MB+ 的
 JVM 压到几十 MB 原生级别。
 
-本 fork 相对上游的升级与特色说明见 [FORK_NOTES.md](./FORK_NOTES.md)。
+本仓库是 [yituorou/meatshell](https://github.com/yituorou/meatshell) 的 fork。相对上游的升级与特色说明见 [FORK_NOTES.md](./FORK_NOTES.md)。项目主页与安装包见 [woncc/meatshell](https://github.com/woncc/meatshell)。
 
 ## 截图
 
@@ -24,7 +24,7 @@ JVM 压到几十 MB 原生级别。
 ## 下载与安装
 
 每次打 `v*` 标签，GitHub Actions 会自动构建 **Windows / Linux / macOS** 三平台二进制，
-发布到 [Releases](https://github.com/yituorou/meatshell/releases) 页面。
+发布到 [Releases](https://github.com/woncc/meatshell/releases) 页面。
 
 ### Windows
 

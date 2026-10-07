@@ -706,7 +706,7 @@ pub(super) fn open_window(
         let weak = window.as_weak();
         std::thread::spawn(move || {
             let body =
-                match ureq::get("https://api.github.com/repos/yituorou/meatshell/releases/latest")
+                match ureq::get("https://api.github.com/repos/woncc/meatshell/releases/latest")
                     .set("User-Agent", "meatshell-update-check")
                     .timeout(std::time::Duration::from_secs(8))
                     .call()

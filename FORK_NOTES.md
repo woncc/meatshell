@@ -77,7 +77,7 @@ MeatShell 本身是轻量 SSH / 终端客户端（Rust + Slint）。本 fork 在
 - **脱敏只改展示**：闭眼模式替换 UI 文案；SSH 真实用户名、主机、端口仍用于连接。
 - **默认明文**：未打开眼睛开关时行为与平常一致。
 - **主机密钥对话框保持可读**：避免误信主机时看不清关键信息。
-- **更新渠道提醒**：本仓若使用带上游更新横幅的构建，请勿用上游下载页覆盖本 fork 安装包，以免冲掉 fork 独有改动。详见 [`docs/REMOTE_MCP.md`](./docs/REMOTE_MCP.md) 中关于 fork 更新的说明。
+- **更新渠道**：应用内启动更新检查和「下载」横幅指向本 fork 的 [Releases](https://github.com/woncc/meatshell/releases)。横幅只打开网页，不会自动安装。请勿用上游 [yituorou/meatshell](https://github.com/yituorou/meatshell) 的发布包覆盖本 fork。详见 [`docs/REMOTE_MCP.md`](./docs/REMOTE_MCP.md)。
 
 本轮未声称新增加密、审计日志或其它安全子系统；上表以外的安全能力仍以上游为准。
 
