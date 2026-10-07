@@ -475,8 +475,12 @@ export component AppWindow inherits Window {
     // stay here as the live data source shared with that window (#23).
     callback open-processes();
     in-out property <bool> process-window-open: false;
+    // Mirrors ProcWindow sort-col / sort-desc so a refresh keeps the header choice.
+    // 0 PID, 1 user, 2 CPU%, 3 MEM%, 4 resident size, 5 command.
+    in-out property <int> proc-sort-col: 2;
+    in-out property <bool> proc-sort-desc: true;
     in property <bool> proc-available;       // a live remote session is active
-    in property <[ProcRow]> proc-list;       // top remote processes by CPU
+    in property <[ProcRow]> proc-list;       // sampled processes, ordered by proc-sort-col
     callback open-system-info();
     in-out property <bool> system-info-window-open: false;
     in property <bool> system-info-available; // connected Linux session only (#268)

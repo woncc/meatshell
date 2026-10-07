@@ -41,7 +41,8 @@ pub(super) fn disk_model(disks: &[(String, u64, u64)]) -> ModelRc<DiskInfo> {
 }
 
 /// Build the process-monitor model for the popup (#23). `cpu`/`mem` are
-/// pre-formatted to one decimal; `cpu_frac` (0..1) drives the row's load bar.
+/// pre-formatted to one decimal; `mem_size` is resident size via [`format_size`];
+/// `cpu_frac` (0..1) drives the row's load bar.
 pub(super) fn set_process_action_error(weak: &slint::Weak<ProcWindow>, message: &str) {
     if let Some(window) = weak.upgrade() {
         window.set_action_busy(false);
@@ -56,20 +57,53 @@ pub(super) fn process_needs_root(current_user: &str, process_user: &str) -> bool
     current_user != "root" && process_user != current_user
 }
 
-pub(super) fn proc_rows(procs: &[ProcInfo], current_user: &str, tab_id: &str) -> Vec<ProcRow> {
-    procs
-        .iter()
+/// Column indexes match the process-window headers: 0 PID, 1 user, 2 CPU%,
+/// 3 MEM%, 4 resident size, 5 command. Anything else sorts by CPU.
+pub(super) fn proc_rows(
+    procs: &[ProcInfo],
+    current_user: &str,
+    tab_id: &str,
+    sort_col: i32,
+    sort_desc: bool,
+) -> Vec<ProcRow> {
+    let mut order: Vec<&ProcInfo> = procs.iter().collect();
+    order.sort_by(|a, b| {
+        let ord = match sort_col {
+            0 => a.pid.cmp(&b.pid),
+            1 => cmp_ignore_case(&a.user, &b.user),
+            3 => a.mem.total_cmp(&b.mem),
+            4 => a.rss_kib.cmp(&b.rss_kib),
+            5 => cmp_ignore_case(&a.command, &b.command),
+            _ => a.cpu.total_cmp(&b.cpu),
+        };
+        let ord = if sort_desc { ord.reverse() } else { ord };
+        ord.then(a.pid.cmp(&b.pid))
+    });
+    order
+        .into_iter()
         .map(|p| ProcRow {
             tab_id: tab_id.into(),
             pid: p.pid.to_string().into(),
             user: p.user.clone().into(),
             cpu: format!("{:.1}", p.cpu).into(),
             mem: format!("{:.1}", p.mem).into(),
+            mem_size: format_size(p.rss_kib.saturating_mul(1024)).into(),
             command: p.command.clone().into(),
             cpu_frac: (p.cpu / 100.0).clamp(0.0, 1.0),
             own_process: !process_needs_root(current_user, &p.user),
         })
         .collect()
+}
+
+fn cmp_ignore_case(a: &str, b: &str) -> std::cmp::Ordering {
+    a.to_lowercase().cmp(&b.to_lowercase())
+}
+
+pub(super) fn proc_sort(win: &AppWindow) -> (i32, bool) {
+    (
+        win.get_proc_sort_col().clamp(0, 5),
+        win.get_proc_sort_desc(),
+    )
 }
 
 #[cfg(test)]

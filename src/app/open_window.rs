@@ -519,6 +519,19 @@ pub(super) fn open_window(
     wire_editor_window_chrome(&ctx);
     {
         let proc_weak = proc_win.as_weak();
+        let main_weak = window.as_weak();
+        let statuses = tab_statuses.clone();
+        proc_win.on_apply_sort(move || {
+            let (Some(process), Some(main)) = (proc_weak.upgrade(), main_weak.upgrade()) else {
+                return;
+            };
+            let col = process.get_sort_col().clamp(0, 5);
+            process.set_sort_col(col);
+            main.set_proc_sort_col(col);
+            main.set_proc_sort_desc(process.get_sort_desc());
+            refresh_process_model(&main, &statuses);
+        });
+        let proc_weak = proc_win.as_weak();
         let handles = handles.clone();
         let statuses = tab_statuses.clone();
         let runtime = runtime.clone();

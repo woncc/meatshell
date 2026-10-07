@@ -18,6 +18,7 @@ export struct ProcRow {
     user: string,
     cpu: string,       // "12.3" (percent, one decimal)
     mem: string,       // "4.5"
+    mem-size: string,  // resident size, e.g. "128.0 MB"
     command: string,   // truncated args
     cpu-frac: float,   // 0.0..1.0, drives the row load bar
     own-process: bool, // may terminate without root authentication
@@ -40,6 +41,51 @@ component ProcMenuItem inherits Rectangle {
         vertical-alignment: center;
         x: 10px;
     }
+}
+
+// Clickable column header. Column indexes match `proc_rows`: 0 PID, 1 user,
+// 2 CPU%, 3 MEM%, 4 resident size, 5 command.
+component ProcColHeaderBase inherits Rectangle {
+    in property <string> label;
+    in property <bool> align-right: false;
+    in property <bool> active: false;
+    in property <bool> desc: false;
+    callback clicked();
+
+    height: 22px;
+    header-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        alignment: root.align-right ? end : start;
+        spacing: 3px;
+        Text {
+            text: root.label;
+            color: root.active ? Theme.accent : Theme.text-muted;
+            font-size: Theme.fs-xs;
+            font-weight: root.active ? 600 : 400;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: root.align-right ? 0 : 1;
+        }
+        if root.active : Text {
+            text: root.desc ? "\u{25BC}" : "\u{25B2}";
+            color: Theme.accent;
+            font-size: 9px;
+            width: 10px;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component ProcColHeader inherits ProcColHeaderBase {
+    in property <length> fixed-width;
+    width: root.fixed-width;
+}
+
+component ProcColHeaderFill inherits ProcColHeaderBase {
+    horizontal-stretch: 1;
 }
 
 component ProcDangerButton inherits Rectangle {
@@ -91,8 +137,18 @@ export component ProcWindow inherits Window {
     in property <bool> is-mac: false;
     in property <bool> custom-titlebar;
     no-frame: root.custom-titlebar;
-    in property <[ProcRow]> proc-list;       // top remote processes by CPU
+    in property <[ProcRow]> proc-list;       // sampled processes, ordered by sort-col
     in property <string> host;               // "user@host" shown in the titlebar
+    // Shared with the row layout. 0 PID, 1 user, 2 CPU%, 3 MEM%, 4 RSS, 5 command.
+    property <length> col-pid: 56px;
+    property <length> col-user: 84px;
+    property <length> col-cpu: 64px;
+    property <length> col-mem: 64px;
+    property <length> col-rss: 78px;
+    // Default matches the remote sample (top CPU first) so the arrow is visible
+    // before the first click.
+    in-out property <int> sort-col: 2;
+    in-out property <bool> sort-desc: true;
 
     in-out property <string> action-status;
     in-out property <bool> action-busy;
@@ -113,6 +169,18 @@ export component ProcWindow inherits Window {
     callback win-resize-se();     // start an OS resize from the bottom-right grip
     callback copy-pid(string);
     callback terminate-process(string /* tab id */, string /* pid */, string /* root password, empty for own process */);
+    callback apply-sort();
+
+    // Text columns start A-Z; numeric columns start high-to-low. A second click flips.
+    function toggle-sort(col: int) {
+        if (root.sort-col == col) {
+            root.sort-desc = !root.sort-desc;
+        } else {
+            root.sort-col = col;
+            root.sort-desc = col != 1 && col != 5;
+        }
+        root.apply-sort();
+    }
 
     // Create the confirmation dialog only after the context-menu click event
     // has fully completed, preventing pointer-up fall-through on any backend.
@@ -127,7 +195,7 @@ export component ProcWindow inherits Window {
 
     min-width: 420px;
     min-height: 280px;
-    preferred-width: 640px;
+    preferred-width: 760px;
     preferred-height: 520px;
     // Opaque base; the wallpaper Image covers it and the panels frost over the
     // image (mirrors AppWindow) so this window matches the immersive look.
@@ -214,18 +282,55 @@ export component ProcWindow inherits Window {
             padding: 12px;
             spacing: 8px;
 
-            // Column header.
+            // Column header. The active column is accented and shows a down/up mark.
             HorizontalLayout {
                 padding-left: 6px;
                 padding-right: 6px;
                 spacing: 6px;
-                Text { text: "PID"; width: 56px; color: Theme.text-muted; font-size: Theme.fs-xs; }
-                Text { text: @tr("User"); width: 84px; color: Theme.text-muted; font-size: Theme.fs-xs; }
-                Text { text: "CPU%"; width: 52px; color: Theme.text-muted; font-size: Theme.fs-xs;
-                       horizontal-alignment: right; }
-                Text { text: "MEM%"; width: 52px; color: Theme.text-muted; font-size: Theme.fs-xs;
-                       horizontal-alignment: right; }
-                Text { text: @tr("Command"); horizontal-stretch: 1; color: Theme.text-muted; font-size: Theme.fs-xs; }
+                ProcColHeader {
+                    label: "PID";
+                    fixed-width: root.col-pid;
+                    active: root.sort-col == 0;
+                    desc: root.sort-desc;
+                    clicked => { root.toggle-sort(0); }
+                }
+                ProcColHeader {
+                    label: @tr("User");
+                    fixed-width: root.col-user;
+                    active: root.sort-col == 1;
+                    desc: root.sort-desc;
+                    clicked => { root.toggle-sort(1); }
+                }
+                ProcColHeader {
+                    label: "CPU%";
+                    fixed-width: root.col-cpu;
+                    align-right: true;
+                    active: root.sort-col == 2;
+                    desc: root.sort-desc;
+                    clicked => { root.toggle-sort(2); }
+                }
+                ProcColHeader {
+                    label: "MEM%";
+                    fixed-width: root.col-mem;
+                    align-right: true;
+                    active: root.sort-col == 3;
+                    desc: root.sort-desc;
+                    clicked => { root.toggle-sort(3); }
+                }
+                ProcColHeader {
+                    label: @tr("Memory");
+                    fixed-width: root.col-rss;
+                    align-right: true;
+                    active: root.sort-col == 4;
+                    desc: root.sort-desc;
+                    clicked => { root.toggle-sort(4); }
+                }
+                ProcColHeaderFill {
+                    label: @tr("Command");
+                    active: root.sort-col == 5;
+                    desc: root.sort-desc;
+                    clicked => { root.toggle-sort(5); }
+                }
             }
 
             if root.action-status != "" : Text {
@@ -286,7 +391,7 @@ export component ProcWindow inherits Window {
                             padding-right: 6px;
                             spacing: 6px;
                             Rectangle {
-                                width: 56px;
+                                width: root.col-pid;
                                 pid-touch := TouchArea {
                                     mouse-cursor: pointer;
                                     clicked => {
@@ -298,14 +403,17 @@ export component ProcWindow inherits Window {
                                 Text { text: p.pid; color: pid-touch.has-hover ? Theme.accent : Theme.text-secondary;
                                        font-size: Theme.fs-xs; vertical-alignment: center; }
                             }
-                            Text { text: p.user; width: 84px; color: Theme.text-secondary;
+                            Text { text: p.user; width: root.col-user; color: Theme.text-secondary;
                                    font-size: Theme.fs-xs; vertical-alignment: center; overflow: elide; }
-                            Text { text: p.cpu; width: 52px; color: Theme.text-primary;
+                            Text { text: p.cpu; width: root.col-cpu; color: Theme.text-primary;
                                    font-size: Theme.fs-xs; vertical-alignment: center;
                                    horizontal-alignment: right; }
-                            Text { text: p.mem; width: 52px; color: Theme.text-secondary;
+                            Text { text: p.mem; width: root.col-mem; color: Theme.text-secondary;
                                    font-size: Theme.fs-xs; vertical-alignment: center;
                                    horizontal-alignment: right; }
+                            Text { text: p.mem-size; width: root.col-rss; color: Theme.text-secondary;
+                                   font-size: Theme.fs-xs; vertical-alignment: center;
+                                   horizontal-alignment: right; overflow: elide; }
                             Text { text: p.command; horizontal-stretch: 1; color: Theme.text-muted;
                                    font-size: Theme.fs-xs; vertical-alignment: center; overflow: elide; }
                         }

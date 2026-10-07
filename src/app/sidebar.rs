@@ -20,7 +20,10 @@ pub(super) fn refresh_process_model(win: &AppWindow, statuses: &TabStatuses) {
         .unwrap()
         .get(&active)
         .filter(|status| status.state == 1)
-        .map(|status| proc_rows(&status.procs, &status.user, &active))
+        .map(|status| {
+            let (col, desc) = proc_sort(win);
+            proc_rows(&status.procs, &status.user, &active, col, desc)
+        })
         .unwrap_or_default();
     if let Some(model) = win
         .get_proc_list()
@@ -104,7 +107,8 @@ pub(super) fn refresh_sidebar(
             .as_any()
             .downcast_ref::<VecModel<ProcRow>>()
         {
-            vm.set_vec(proc_rows(procs, current_user, tab_id));
+            let (col, desc) = proc_sort(win);
+            vm.set_vec(proc_rows(procs, current_user, tab_id, col, desc));
         }
     };
     let set_system_models = |win: &AppWindow,
