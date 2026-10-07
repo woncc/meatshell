@@ -108,6 +108,9 @@ export component LabeledInput inherits VerticalLayout {
     in property <string> placeholder;
     in-out property <string> value;
     in property <bool> password: false;
+    // Closed-eye identity fields. Shows a fixed `****` instead of one bullet
+    // per character, and does not reveal the real value while masked.
+    in property <bool> fixed-mask: false;
     in property <bool> reveal-enabled: false;
     in-out property <bool> revealed: false;
     callback reveal() -> string;
@@ -196,6 +199,22 @@ export component LabeledInput inherits VerticalLayout {
                     if (e.text == Key.Escape) { root.canceled(); accept }
                     else { reject }   // let TextInput handle normal typing
                 }
+            }
+        }
+        if root.fixed-mask : Rectangle {
+            width: parent.width;
+            height: parent.height;
+            background: root.input-background;
+            border-radius: Theme.radius-sm;
+            TouchArea {}
+            Text {
+                x: 10px;
+                text: "****";
+                color: Theme.text-primary;
+                font-family: Theme.ui-font-family;
+                font-size: Theme.fs-md;
+                vertical-alignment: center;
+                height: parent.height;
             }
         }
         if root.password && root.reveal-enabled : IconButton {

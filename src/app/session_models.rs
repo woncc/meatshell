@@ -273,12 +273,16 @@ fn build_session_rows(
                 } else {
                     s.user.clone()
                 };
+                // The list composes `user@host:port` itself. A zero port and
+                // the mask token keep that line from showing the real port
+                // or a `****@****:63322` shape. The saved session is unchanged.
+                let port = if mask { 0 } else { s.port as i32 };
                 rows.push(SessionInfo {
                     id: s.id.clone().into(),
                     name: name.into(),
                     host: host.into(),
                     serial_detail: serial_session_detail(s).into(),
-                    port: s.port as i32,
+                    port,
                     user: user.into(),
                     auth: s.auth.as_str().into(),
                     last_used: s
@@ -777,11 +781,12 @@ mod serial_display_tests {
         serial.serial_port = "COM3".into();
         serial.name = "console".into();
         let rows = build_session_rows(&[ssh, serial], &[], Some(&[]), &[], "", true);
-        let ssh_row = rows.iter().find(|row| row.port == 22).unwrap();
+        let ssh_row = rows.iter().find(|row| row.host.as_str() == "****").unwrap();
         assert_eq!(ssh_row.user.as_str(), "****");
-        assert_eq!(ssh_row.host.as_str(), "****");
+        assert_eq!(ssh_row.port, 0, "the list must not keep the real port");
         assert!(!ssh_row.name.contains("alice"), "{}", ssh_row.name);
         assert!(!ssh_row.name.contains("10.0.0.8"), "{}", ssh_row.name);
+        assert!(!ssh_row.name.contains(':'), "{}", ssh_row.name);
         let serial_row = rows
             .iter()
             .find(|row| row.name.as_str() == "console")

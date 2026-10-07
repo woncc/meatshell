@@ -5033,7 +5033,7 @@ export component AppWindow inherits Window {
                 if root.cred-need-user : LabeledInput {
                     label: @tr("Username");
                     placeholder: "root";
-                    password: root.hide-ssh-identity;
+                    fixed-mask: root.hide-ssh-identity && root.cred-user != "";
                     value <=> root.cred-user;
                     accepted => { root.cred-accept(); }
                     canceled => { root.cred-reject(); }   // Esc cancels (#140-3)

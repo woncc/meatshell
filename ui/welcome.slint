@@ -293,6 +293,7 @@ component SessionRow inherits Rectangle {
             Text {
                 text: session.serial-detail != "" ? session.serial-detail
                     : session.builtin ? session.host
+                    : (session.host == "****" || session.user == "****") ? "****"
                     : (session.user != "" ? session.user + "@" : "")
                         + (session.port > 0 ? session.host + ":" + session.port : session.host);
                 color: Theme.text-muted;

@@ -1464,8 +1464,8 @@ export component InterfacePanel inherits Rectangle {
                 SettingRow {
                     label: root.lang-en ? "Hide SSH user and host" : "隐藏 SSH 用户名和主机";
                     desc: root.lang-en
-                        ? "Default shows them. On replaces the username and host with **** in the sidebar, terminal status, session list, and tab title. The connection still uses the real address. The toolbar eye does the same."
-                        : "默认显示明文。打开后，侧栏、终端状态、会话列表和标签标题里的用户名和主机会变成 ****。连接仍使用真实地址。工具栏的眼睛按钮同样切换。";
+                        ? "Default shows them. On replaces the username, host, and port with **** in the sidebar, terminal status, session list, and tab title. The connection still uses the real address. The toolbar eye does the same."
+                        : "默认显示明文。打开后，侧栏、终端状态、会话列表和标签标题里的用户名、主机和端口会变成 ****。连接仍使用真实地址。工具栏的眼睛按钮同样切换。";
                     Switch {
                         on: root.hide-ssh-identity;
                         toggled(v) => { root.hide-ssh-identity = v; root.set-hide-ssh-identity(v); }
