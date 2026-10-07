@@ -60,12 +60,10 @@ pub(super) fn refresh_sidebar(
             0.0
         }
     };
-    let snap = local.lock().unwrap().clone();
+    let snap = local.snap.lock().unwrap().clone();
 
-    // --- Bottom network graph: always the local machine --------------------
-    win.set_net_bot_up(format_bytes_per_sec(snap.net_tx_per_sec).into());
-    win.set_net_bot_down(format_bytes_per_sec(snap.net_rx_per_sec).into());
-    win.set_net_bot_history(normalized_model(&local_net_hist.lock().unwrap()));
+    // The lower panel is applied after the active tab is known: speed by
+    // default, or latency to that tab's host when the user opted in.
 
     let set_top_local = |win: &AppWindow| {
         win.set_net_top_up(format_bytes_per_sec(snap.net_tx_per_sec).into());
@@ -228,6 +226,10 @@ pub(super) fn refresh_sidebar(
     } else {
         statuses.lock().unwrap().get(&active).cloned()
     };
+    let probe_host = status
+        .as_ref()
+        .map(|st| st.probe_host.clone())
+        .unwrap_or_default();
 
     match status {
         // Local shell tabs: keep the connection status line, but show the local
@@ -240,14 +242,16 @@ pub(super) fn refresh_sidebar(
             } else {
                 0
             });
-            win.set_connection_state(if st.state == 1 {
-                st.host.clone()
-            } else if st.state == 2 {
-                format!("{} {}", st.host, t("已断开", "disconnected"))
-            } else {
-                format!("{} {}", t("连接中", "Connecting"), st.host)
-            }
-            .into());
+            win.set_connection_state(
+                if st.state == 1 {
+                    st.host.clone()
+                } else if st.state == 2 {
+                    format!("{} {}", st.host, t("已断开", "disconnected"))
+                } else {
+                    format!("{} {}", t("连接中", "Connecting"), st.host)
+                }
+                .into(),
+            );
             win.set_conn_host(conn_ip(&st.host).into());
             show_local_res(win);
             set_top_local(win);
@@ -339,6 +343,46 @@ pub(super) fn refresh_sidebar(
             set_top_local(win);
             show_local_system_models(win);
         }
+    }
+    apply_local_panel(win, local, local_net_hist, &snap, &probe_host);
+}
+
+/// Lower local panel. Default is realtime upload/download. Latency mode shows
+/// milliseconds and clears the throughput strings so the two units cannot mix.
+fn apply_local_panel(
+    win: &AppWindow,
+    local: &LocalSnap,
+    local_net_hist: &NetHist,
+    snap: &SystemSnapshot,
+    probe_host: &str,
+) {
+    let latency_mode = win.get_local_latency_mode();
+    if latency_mode {
+        local.latency.set_target(probe_host);
+    } else {
+        local.latency.set_target("");
+    }
+    let rtt = if latency_mode {
+        local.latency.latest()
+    } else {
+        None
+    };
+    let view = local_metric_view(latency_mode, snap.net_tx_per_sec, snap.net_rx_per_sec, rtt);
+    win.set_local_metric_label(
+        (if latency_mode {
+            t("延迟", "Latency")
+        } else {
+            t("本机速度", "Local speed")
+        })
+        .into(),
+    );
+    win.set_net_bot_up(view.speed_up.into());
+    win.set_net_bot_down(view.speed_down.into());
+    win.set_local_latency_text(view.latency_text.into());
+    if latency_mode {
+        win.set_local_latency_history(normalized_model(&local.latency.history()));
+    } else {
+        win.set_net_bot_history(normalized_model(&local_net_hist.lock().unwrap()));
     }
 }
 

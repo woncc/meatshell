@@ -314,6 +314,17 @@ pub(super) fn wire_layout_prefs(ctx: &WinCtx) {
         }
         window.set_collapse_sidebar_default(collapse_sidebar);
         window.set_collapse_sftp_default(collapse_sftp);
+        let local_latency = s.local_panel_latency();
+        window.set_local_latency_mode(local_latency);
+        window.set_local_metric_label(
+            (if local_latency {
+                t("延迟", "Latency")
+            } else {
+                t("本机速度", "Local speed")
+            })
+            .into(),
+        );
+        window.set_local_latency_text(if local_latency { "--" } else { "" }.into());
         // Restore the persisted panel docking layout (#dock).
         window.set_sidebar_width(s.sidebar_width());
         window.set_sidebar_height(s.sidebar_height());
@@ -359,6 +370,28 @@ pub(super) fn wire_layout_prefs(ctx: &WinCtx) {
             let mut s = store.borrow_mut();
             s.set_collapse_sidebar_default(v);
             let _ = s.save();
+        });
+    }
+    {
+        let store = store.clone();
+        let weak = window.as_weak();
+        window.on_set_local_latency_mode(move |latency| {
+            {
+                let mut s = store.borrow_mut();
+                s.set_local_panel_latency(latency);
+                let _ = s.save();
+            }
+            if let Some(w) = weak.upgrade() {
+                w.set_local_metric_label(
+                    (if latency {
+                        t("延迟", "Latency")
+                    } else {
+                        t("本机速度", "Local speed")
+                    })
+                    .into(),
+                );
+                w.invoke_refresh_sidebar();
+            }
         });
     }
     {

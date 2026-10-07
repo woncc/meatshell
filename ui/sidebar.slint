@@ -354,7 +354,9 @@ component StatsBlock inherits VerticalLayout {
     StatRow { label: @tr("Swap"); percent: root.swap-percent; detail: root.swap-detail; bar-color: Theme.warning; }
 }
 
-// Dual network graph (active tab on top, local below).
+// Dual network graph (active tab on top, local panel below).
+// The local panel defaults to realtime speed (upload/download). Latency mode
+// replaces that with ICMP round-trip milliseconds; the speed row is hidden.
 component NetBlock inherits VerticalLayout {
     in property <string> net-top-up;
     in property <string> net-top-down;
@@ -365,15 +367,57 @@ component NetBlock inherits VerticalLayout {
     in property <string> net-bot-up;
     in property <string> net-bot-down;
     in property <[float]> net-bot-history;
+    in property <bool> latency-mode: false;
+    in property <string> local-metric-label: "Local speed";
+    in property <string> latency-text: "--";
+    in property <[float]> latency-history;
     callback select-net-iface(string);
+    callback toggle-local-metric();
     spacing: 6px;
     NetGraph {
         up-text: root.net-top-up; down-text: root.net-top-down; history: root.net-top-history;
         show-selector: root.net-show-selector; ifaces: root.net-ifaces; selected: root.net-selected;
         iface-selected(i) => { root.select-net-iface(i); }
     }
-    Text { text: @tr("Local"); color: Theme.text-muted; font-size: Theme.fs-xs; }
-    NetGraph { up-text: root.net-bot-up; down-text: root.net-bot-down; history: root.net-bot-history; }
+    Rectangle {
+        height: 16px;
+        mode-ta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.toggle-local-metric(); }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            Text {
+                text: root.local-metric-label;
+                color: mode-ta.has-hover ? Theme.text-primary : Theme.text-muted;
+                font-size: Theme.fs-xs;
+                vertical-alignment: center;
+            }
+            Text {
+                text: "\u{E8D4}";
+                font-family: "Material Icons";
+                color: Theme.text-muted;
+                font-size: Theme.fs-xs;
+                vertical-alignment: center;
+            }
+        }
+    }
+    if !root.latency-mode : NetGraph {
+        up-text: root.net-bot-up; down-text: root.net-bot-down; history: root.net-bot-history;
+    }
+    if root.latency-mode : VerticalLayout {
+        spacing: 3px;
+        Text {
+            text: root.latency-text;
+            color: Theme.text-secondary;
+            font-size: Theme.fs-xs;
+        }
+        Sparkline {
+            height: 48px;
+            values: root.latency-history;
+            line-color: Theme.warning;
+        }
+    }
 }
 
 // Disk-usage list with a hover tooltip, self-contained.
@@ -456,6 +500,11 @@ export component Sidebar inherits Rectangle {
     in property <string> net-bot-up;
     in property <string> net-bot-down;
     in property <[float]> net-bot-history;
+    // Default false: the local panel shows realtime speed. True shows latency.
+    in property <bool> local-latency-mode: false;
+    in property <string> local-metric-label: "Local speed";
+    in property <string> local-latency-text: "--";
+    in property <[float]> local-latency-history;
     in property <[string]> net-ifaces;
     in property <string> net-selected;
     in property <bool> net-show-selector;
@@ -465,6 +514,7 @@ export component Sidebar inherits Rectangle {
     // always matches Cargo.toml without hand-editing this file.
     in property <string> app-version;
     callback select-net-iface(string);
+    callback toggle-local-metric();
     callback show-system-info();         // open the system-information window
     callback show-processes();           // open the process monitor popup (#23)
     callback copy-host(string);          // copy the connection IP/host to clipboard (#192)
@@ -548,7 +598,12 @@ export component Sidebar inherits Rectangle {
                 net-top-up: root.net-top-up; net-top-down: root.net-top-down; net-top-history: root.net-top-history;
                 net-show-selector: root.net-show-selector; net-ifaces: root.net-ifaces; net-selected: root.net-selected;
                 net-bot-up: root.net-bot-up; net-bot-down: root.net-bot-down; net-bot-history: root.net-bot-history;
+                latency-mode: root.local-latency-mode;
+                local-metric-label: root.local-metric-label;
+                latency-text: root.local-latency-text;
+                latency-history: root.local-latency-history;
                 select-net-iface(i) => { root.select-net-iface(i); }
+                toggle-local-metric() => { root.toggle-local-metric(); }
             }
             Rectangle { height: 1px; background: Theme.border-subtle; }
             DiskBlock { vertical-stretch: 1; disks: root.disks; }
@@ -606,7 +661,12 @@ export component Sidebar inherits Rectangle {
                 net-top-up: root.net-top-up; net-top-down: root.net-top-down; net-top-history: root.net-top-history;
                 net-show-selector: root.net-show-selector; net-ifaces: root.net-ifaces; net-selected: root.net-selected;
                 net-bot-up: root.net-bot-up; net-bot-down: root.net-bot-down; net-bot-history: root.net-bot-history;
+                latency-mode: root.local-latency-mode;
+                local-metric-label: root.local-metric-label;
+                latency-text: root.local-latency-text;
+                latency-history: root.local-latency-history;
                 select-net-iface(i) => { root.select-net-iface(i); }
+                toggle-local-metric() => { root.toggle-local-metric(); }
             }
             Rectangle { width: 1px; background: Theme.border-subtle; }
             DiskBlock { horizontal-stretch: 1; disks: root.disks; }

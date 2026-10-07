@@ -2,6 +2,17 @@
 
 use super::*;
 
+fn session_probe_host(session: &Session) -> String {
+    match session.kind {
+        SessionKind::Ssh | SessionKind::Telnet => {
+            crate::resource::latency::ping_host(&session.host)
+                .unwrap_or("")
+                .to_string()
+        }
+        _ => String::new(),
+    }
+}
+
 pub(super) fn sync_sessions_for_window(
     window: &slint::Weak<AppWindow>,
     store: &ConfigStore,
@@ -1229,6 +1240,7 @@ pub(super) fn wire_session_callbacks(
                     session_id: id.clone(),
                     state: 0,
                     is_local: session.kind == SessionKind::Local,
+                    probe_host: session_probe_host(&session),
                     ..Default::default()
                 },
             );

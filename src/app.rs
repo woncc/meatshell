@@ -9,12 +9,12 @@ mod auth_dialogs;
 mod aux_windows;
 pub(crate) mod core;
 mod dock_stacks;
+#[path = "app/editor_syntax.rs"]
+mod editor_syntax;
 mod file_drop;
 mod fonts;
 mod helpers;
 mod hit_test;
-#[path = "app/editor_syntax.rs"]
-mod editor_syntax;
 #[cfg(windows)]
 mod jump_list;
 mod key_input;
@@ -26,8 +26,8 @@ mod port_forward;
 mod quick_commands;
 mod resource_ui;
 mod session_callbacks;
-mod session_event;
 mod session_editor;
+mod session_event;
 mod session_models;
 mod session_runtime;
 mod session_trigger;
@@ -99,9 +99,10 @@ use crate::config::{
 };
 use crate::i18n::t;
 use crate::layout::{LogicalRect, TerminalWheelHit};
+use crate::resource::latency::local_metric_view;
 use crate::resource::system::{format_bytes_per_sec, format_mem};
 use crate::resource::{
-    LocalGpuInfo, LocalHardwareInfo, LocalSnap, NetHist, TabStatus, TabStatuses,
+    LocalGpuInfo, LocalHardwareInfo, LocalMachine, LocalSnap, NetHist, TabStatus, TabStatuses,
 };
 use crate::resource::{SystemSampler, SystemSnapshot};
 use crate::session::{ConnectCtx, PendingCred, PendingHostKey, PendingMfa};

@@ -370,14 +370,20 @@ export component AppWindow inherits Window {
     in property <float> swap-percent;
     in property <string> mem-detail;
     in property <string> swap-detail;
-    // Dual network panel.  "top" follows the active tab (remote NIC on a
-    // session tab, local on the welcome tab); "bot" is always the local machine.
+    // Dual network panel. "top" follows the active tab (remote NIC on a
+    // session tab, local on the welcome tab). "bot" is the local panel:
+    // realtime speed by default, or latency when local-latency-mode is set.
     in property <string> net-top-up;        // ↑ tx rate text
     in property <string> net-top-down;      // ↓ rx rate text
     in property <[float]> net-top-history;
     in property <string> net-bot-up;
     in property <string> net-bot-down;
     in property <[float]> net-bot-history;
+    in-out property <bool> local-latency-mode: false;
+    in property <string> local-metric-label: "Local speed";
+    in property <string> local-latency-text: "--";
+    in property <[float]> local-latency-history;
+    callback set-local-latency-mode(bool);
     in property <[string]> net-ifaces;      // remote NIC names for the selector
     in property <string> net-selected;      // currently selected NIC
     in property <bool> net-show-selector;   // only on a live session tab
@@ -1698,6 +1704,10 @@ export component AppWindow inherits Window {
                 net-bot-up: root.net-bot-up;
                 net-bot-down: root.net-bot-down;
                 net-bot-history: root.net-bot-history;
+                local-latency-mode: root.local-latency-mode;
+                local-metric-label: root.local-metric-label;
+                local-latency-text: root.local-latency-text;
+                local-latency-history: root.local-latency-history;
                 net-ifaces: root.net-ifaces;
                 net-selected: root.net-selected;
                 net-show-selector: root.net-show-selector;
@@ -1706,6 +1716,10 @@ export component AppWindow inherits Window {
                 proc-available: root.proc-available;
                 app-version: root.app-version;
                 select-net-iface(i) => { root.select-net-iface(i); }
+                toggle-local-metric() => {
+                    root.local-latency-mode = !root.local-latency-mode;
+                    root.set-local-latency-mode(root.local-latency-mode);
+                }
                 show-system-info() => { root.open-system-info(); }
                 show-processes() => { root.open-processes(); }
                 copy-host(h) => { root.copy-text(h); }   // reuse the clipboard helper (#192)
@@ -2310,6 +2324,10 @@ export component AppWindow inherits Window {
                     net-bot-up: root.net-bot-up;
                     net-bot-down: root.net-bot-down;
                     net-bot-history: root.net-bot-history;
+                    local-latency-mode: root.local-latency-mode;
+                    local-metric-label: root.local-metric-label;
+                    local-latency-text: root.local-latency-text;
+                    local-latency-history: root.local-latency-history;
                     net-ifaces: root.net-ifaces;
                     net-selected: root.net-selected;
                     net-show-selector: root.net-show-selector;
@@ -2318,6 +2336,10 @@ export component AppWindow inherits Window {
                     proc-available: root.proc-available;
                     app-version: root.app-version;
                     select-net-iface(i) => { root.select-net-iface(i); }
+                    toggle-local-metric() => {
+                        root.local-latency-mode = !root.local-latency-mode;
+                        root.set-local-latency-mode(root.local-latency-mode);
+                    }
                     show-system-info() => { root.open-system-info(); }
                     show-processes() => { root.open-processes(); }
                     copy-host(h) => { root.copy-text(h); }
@@ -5190,6 +5212,7 @@ export component AppWindow inherits Window {
                     ui-scale: root.ui-scale;
                     sftp-follow-cd <=> root.sftp-follow-cd;
                     collapse-sidebar-default <=> root.collapse-sidebar-default;
+                    local-latency-mode <=> root.local-latency-mode;
                     collapse-sftp-default <=> root.collapse-sftp-default;
                     sync-upload-enabled <=> root.sync-upload-enabled;
                     webdav-enabled <=> root.webdav-enabled;
@@ -5245,6 +5268,7 @@ export component AppWindow inherits Window {
                     set-renderer-mode(v) => { root.set-renderer-mode(v); }
                     set-sftp-follow-cd(v) => { root.set-sftp-follow-cd(v); }
                     set-collapse-sidebar-default(v) => { root.set-collapse-sidebar-default(v); }
+                    set-local-latency-mode(v) => { root.set-local-latency-mode(v); }
                     set-collapse-sftp-default(v) => { root.set-collapse-sftp-default(v); }
                     set-sync-upload-enabled(v) => { root.set-sync-upload-enabled(v); }
                     save-webdav-settings(enabled, url, username, password, remote-path, accept-invalid-certs) => {

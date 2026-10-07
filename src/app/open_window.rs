@@ -473,7 +473,7 @@ pub(super) fn open_window(
     // Per-tab connection status + remote resources, the latest local sample,
     // and the local machine's network history (bottom sparkline).
     let tab_statuses: TabStatuses = Arc::new(Mutex::new(HashMap::new()));
-    let local_snap: LocalSnap = Arc::new(Mutex::new(SystemSnapshot::default()));
+    let local_snap: LocalSnap = Arc::new(LocalMachine::new());
     let local_net_hist: NetHist = Arc::new(Mutex::new(vec![0.0; NET_HISTORY_LEN]));
 
     // Per-tab display-name overrides set via "Rename session" (tab context
@@ -829,7 +829,7 @@ pub(super) fn open_window(
             push_ring(&mut tick_net.lock().unwrap(), snap.net_bytes_per_sec as f32);
             // Stash the local sample; the sidebar shows it on the welcome tab
             // and in the bottom network graph.
-            *tick_local.lock().unwrap() = snap.clone();
+            *tick_local.snap.lock().unwrap() = snap.clone();
 
             // Everything (status, CPU/mem/swap, both graphs) follows the
             // active tab; refresh_sidebar reads the stores we just updated.

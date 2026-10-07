@@ -74,8 +74,10 @@ pub(crate) struct TabStatus {
     pub(crate) disks: Vec<(String, u64, u64)>,
     pub(crate) procs: Vec<ProcInfo>,
     pub(crate) sys: SystemDetails,
+    /// ICMP target for the local panel's latency mode. Empty for local shells,
+    /// serial sessions, and any host that is not a plain name or address.
+    pub(crate) probe_host: String,
 }
 
 pub(crate) type TabStatuses = Arc<Mutex<HashMap<String, TabStatus>>>;
-pub(crate) type LocalSnap = Arc<Mutex<SystemSnapshot>>;
 pub(crate) type NetHist = Arc<Mutex<Vec<f32>>>;

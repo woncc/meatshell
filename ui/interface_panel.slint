@@ -378,6 +378,7 @@ export component InterfacePanel inherits Rectangle {
     in property <float> ui-scale;
     in-out property <bool> sftp-follow-cd;
     in-out property <bool> collapse-sidebar-default;
+    in-out property <bool> local-latency-mode: false;
     in-out property <bool> collapse-sftp-default;
     in-out property <bool> sync-upload-enabled;
     in-out property <bool> webdav-enabled;
@@ -438,6 +439,7 @@ export component InterfacePanel inherits Rectangle {
     callback set-renderer-mode(string);
     callback set-sftp-follow-cd(bool);
     callback set-collapse-sidebar-default(bool);
+    callback set-local-latency-mode(bool);
     callback set-collapse-sftp-default(bool);
     callback set-sync-upload-enabled(bool);
     callback save-webdav-settings(bool, string, string, string, string, bool);
@@ -1405,6 +1407,16 @@ export component InterfacePanel inherits Rectangle {
                     Switch {
                         on: root.collapse-sidebar-default;
                         toggled(v) => { root.collapse-sidebar-default = v; root.set-collapse-sidebar-default(v); }
+                    }
+                }
+                SettingRow {
+                    label: root.lang-en ? "Local panel shows latency" : "本机面板显示延迟";
+                    desc: root.lang-en
+                        ? "Default is realtime speed (this computer's upload and download). On: ICMP round trip to the active SSH or Telnet host, in ms. \"--\" means no remote host or no reply. The panel title switches it too."
+                        : "默认是实时速度（本机上行和下行）。打开后显示当前 SSH 或 Telnet 主机的 ICMP 往返毫秒。\"--\" 表示没有远程主机或没有回应。点击面板标题也能切换。";
+                    Switch {
+                        on: root.local-latency-mode;
+                        toggled(v) => { root.local-latency-mode = v; root.set-local-latency-mode(v); }
                     }
                 }
                 SettingRow {

@@ -46,6 +46,13 @@ pub(crate) const DEFAULT_WALLPAPER_OVERLAY: f32 = 1.0 - DEFAULT_WALLPAPER_TRANSP
 pub(crate) fn default_sidebar_width() -> f32 {
     220.0
 }
+
+/// Default local-panel metric. Realtime speed keeps the original sidebar.
+/// `"latency"` is the opt-in ICMP round-trip display.
+pub(crate) fn default_local_panel_metric() -> String {
+    "speed".to_string()
+}
+
 pub(crate) fn default_sidebar_height() -> f32 {
     240.0
 }
@@ -60,10 +67,18 @@ pub(crate) fn default_sftp_tree_width() -> f32 {
 }
 
 pub(crate) fn default_sftp_visible_columns() -> Vec<String> {
-    ["name", "type", "size", "modified", "permissions", "owner", "group"]
-        .into_iter()
-        .map(str::to_string)
-        .collect()
+    [
+        "name",
+        "type",
+        "size",
+        "modified",
+        "permissions",
+        "owner",
+        "group",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
 }
 
 pub(crate) fn default_quick_panel_width() -> f32 {
@@ -211,6 +226,11 @@ pub struct ConfigFile {
     /// Persisted across restarts so the drag-resized width sticks.
     #[serde(default = "default_sidebar_width")]
     pub sidebar_width: f32,
+    /// Lower resource-panel metric. `"speed"` (the default) is this computer's
+    /// realtime upload and download. `"latency"` is ICMP round-trip milliseconds
+    /// to the active SSH or Telnet host. Missing or unknown values stay on speed.
+    #[serde(default = "default_local_panel_metric")]
+    pub local_panel_metric: String,
     /// Resource-panel docking: size when docked top/bottom, and which edge it is
     /// docked to (left|right|top|bottom). Persisted so the layout sticks (#dock).
     #[serde(default = "default_sidebar_height")]
