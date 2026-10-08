@@ -144,6 +144,7 @@ pub(super) fn apply_session_event_to_window(
         }
         SessionEvent::ResourceStats {
             cpu_percent,
+            load1,
             mem_used_kib,
             mem_total_kib,
             swap_used_kib,
@@ -156,6 +157,11 @@ pub(super) fn apply_session_event_to_window(
         } => {
             if let Some(st) = statuses.lock().unwrap().get_mut(tab_id) {
                 st.cpu = cpu_percent;
+                // The one-shot system-info probe shares this event and does not
+                // sample loadavg. Don't let that probe wipe a live value.
+                if sys.is_none() || load1.is_some() {
+                    st.load1 = load1;
+                }
                 st.mem_used_kib = mem_used_kib;
                 st.mem_total_kib = mem_total_kib;
                 st.swap_used_kib = swap_used_kib;

@@ -64,6 +64,9 @@ pub(crate) struct TabStatus {
     /// local machine's resource panel, not the (empty) remote stats fields.
     pub(crate) is_local: bool,
     pub(crate) cpu: f32,
+    /// 1-minute load average from `/proc/loadavg` field 1, when a remote
+    /// sample included it.
+    pub(crate) load1: Option<f64>,
     pub(crate) mem_used_kib: u64,
     pub(crate) mem_total_kib: u64,
     pub(crate) swap_used_kib: u64,

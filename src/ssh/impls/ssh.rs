@@ -1177,11 +1177,13 @@ where
             )
             .await?
         }
-        None => network_stage(
-            &format!("TCP connect to {addr}"),
-            tokio::net::TcpStream::connect((session.host.as_str(), session.port)),
-        )
-        .await?,
+        None => {
+            network_stage(
+                &format!("TCP connect to {addr}"),
+                tokio::net::TcpStream::connect((session.host.as_str(), session.port)),
+            )
+            .await?
+        }
     };
     let stage = format!("SSH handshake to {addr}");
     let _ = events.send(SessionEvent::Status(stage.clone()));
@@ -1226,7 +1228,10 @@ pub(crate) async fn authenticate_session(
     let authed = match session.auth {
         AuthMethod::Password => {
             let mut ok = network_stage(
-                &format!("password authentication at {}:{}", session.host, session.port),
+                &format!(
+                    "password authentication at {}:{}",
+                    session.host, session.port
+                ),
                 handle.authenticate_password(&user, password.as_str()),
             )
             .await?;
@@ -1274,7 +1279,10 @@ pub(crate) async fn authenticate_session(
             let key_with_hash = PrivateKeyWithHashAlg::new(Arc::new(keypair), hash)
                 .context("invalid private key / hash algorithm combination")?;
             network_stage(
-                &format!("public-key authentication at {}:{}", session.host, session.port),
+                &format!(
+                    "public-key authentication at {}:{}",
+                    session.host, session.port
+                ),
                 handle.authenticate_publickey(&user, key_with_hash),
             )
             .await?
@@ -1486,13 +1494,19 @@ pub async fn execute_command(
 ) -> Result<CommandExecution> {
     // A hop which accepts TCP but never completes SSH must not bypass the
     // caller's timeout. Bound the entire route, authentication and command.
-    match tokio::time::timeout(timeout, execute_command_inner(
-        session, jump, command, timeout, max_output_bytes,
-    )).await {
+    match tokio::time::timeout(
+        timeout,
+        execute_command_inner(session, jump, command, timeout, max_output_bytes),
+    )
+    .await
+    {
         Ok(result) => result,
         Err(_) => Ok(CommandExecution {
-            stdout: String::new(), stderr: String::new(), exit_code: None,
-            timed_out: true, truncated: false,
+            stdout: String::new(),
+            stderr: String::new(),
+            exit_code: None,
+            timed_out: true,
+            truncated: false,
         }),
     }
 }
@@ -1780,7 +1794,7 @@ async fn run_session(
     // clipped to 200 chars so a giant command line can't bloat the stream. A
     // host whose `ps` lacks `--sort`/`-o` simply yields nothing (2>/dev/null),
     // degrading to an empty process list.
-    const MON_CMD: &[u8] = b"PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH; while :; do awk '/^cpu /{print}' /proc/stat; awk '/^(MemTotal|MemAvailable|SwapTotal|SwapFree|Buffers|Cached):/{print}' /proc/meminfo; cat /proc/net/dev; echo __DF__; df -kP 2>/dev/null; echo __MSTICK__; sleep 2; done\n";
+    const MON_CMD: &[u8] = b"PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH; while :; do awk '/^cpu /{print}' /proc/stat; awk '/^(MemTotal|MemAvailable|SwapTotal|SwapFree|Buffers|Cached):/{print}' /proc/meminfo; awk '{print \"loadavg \"$1}' /proc/loadavg 2>/dev/null; cat /proc/net/dev; echo __DF__; df -kP 2>/dev/null; echo __MSTICK__; sleep 2; done\n";
     // Detailed system information is intentionally one-shot and last priority.
     // It includes commands such as lspci/hostname that may be slow on some hosts
     // and must never delay either the terminal or the lightweight sidebar sample.
@@ -2405,6 +2419,7 @@ fn parse_monitor_block(
     let mut cpu_total = 0u64;
     let mut cpu_idle = 0u64;
     let mut have_cpu = false;
+    let mut load1: Option<f64> = None;
     let mut mem_total = 0u64;
     let mut mem_avail = 0u64;
     let mut mem_buffers = 0u64;
@@ -2521,6 +2536,13 @@ fn parse_monitor_block(
             swap_total = parse_meminfo_kib(v);
         } else if let Some(v) = line.strip_prefix("SwapFree:") {
             swap_free = parse_meminfo_kib(v);
+        } else if let Some(v) = line.strip_prefix("loadavg ") {
+            // Field 1 of /proc/loadavg, printed alone by the monitor command.
+            if let Ok(n) = v.trim().parse::<f64>() {
+                if n.is_finite() && n >= 0.0 {
+                    load1 = Some(n);
+                }
+            }
         } else if net_now.len() < MAX_MON_ENTRIES {
             if let Some((iface, counters)) = parse_net_dev_line(line) {
                 net_now.push((iface, counters.0, counters.1));
@@ -2591,6 +2613,7 @@ fn parse_monitor_block(
 
     Some(SessionEvent::ResourceStats {
         cpu_percent,
+        load1,
         mem_used_kib: mem_total.saturating_sub(mem_avail),
         mem_total_kib: mem_total,
         swap_used_kib: swap_total.saturating_sub(swap_free),
@@ -3461,6 +3484,44 @@ mod monitor_hardening_tests {
             }
             other => panic!("unexpected event: {other:?}"),
         }
+    }
+
+    #[test]
+    fn monitor_sample_reads_one_minute_load_average() {
+        let block = "cpu 1 2 3 4\nMemTotal: 1000 kB\nMemAvailable: 500 kB\nloadavg 0.123\n";
+        let mut prev = None;
+        let mut prev_net = HashMap::new();
+        let mut at = Instant::now();
+        let event = parse_monitor_block(block, &mut prev, &mut prev_net, &mut at).unwrap();
+        match event {
+            super::SessionEvent::ResourceStats { load1, .. } => {
+                let load1 = load1.expect("loadavg");
+                assert!((load1 - 0.123).abs() < 1e-9);
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn monitor_sample_without_loadavg_leaves_it_empty() {
+        let block = "cpu 1 2 3 4\nMemTotal: 1000 kB\nMemAvailable: 500 kB\n";
+        let mut prev = None;
+        let mut prev_net = HashMap::new();
+        let mut at = Instant::now();
+        let event = parse_monitor_block(block, &mut prev, &mut prev_net, &mut at).unwrap();
+        match event {
+            super::SessionEvent::ResourceStats { load1, .. } => assert!(load1.is_none()),
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn monitor_command_prints_loadavg_field() {
+        let cmd = include_str!("ssh.rs");
+        assert!(
+            cmd.contains("awk '{print \\\"loadavg \\\"$1}' /proc/loadavg"),
+            "resource monitor must sample /proc/loadavg field 1"
+        );
     }
 
     #[test]

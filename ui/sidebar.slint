@@ -16,7 +16,9 @@ component StatRow inherits HorizontalLayout {
     in property <string> detail;
     in property <brush> bar-color: Theme.accent;
 
-    spacing: 6px;
+    // Gaps are fixed lengths. Only the bar has a positive stretch, so widening
+    // the sidebar lengthens the bar instead of the space before the value.
+    spacing: 0px;
     padding-left: 8px;
     padding-right: 8px;
     height: 22px;
@@ -26,15 +28,18 @@ component StatRow inherits HorizontalLayout {
         color: Theme.text-secondary;
         font-size: Theme.fs-sm;
         width: 52px;          // fits English "Memory" as well as 中文 "内存"
+        horizontal-stretch: 0;
         vertical-alignment: center;
         overflow: elide;
     }
+
+    Rectangle { width: 6px; horizontal-stretch: 0; }
 
     // Progress bar — stretches to fill the row, with a floor so it stays usable.
     Rectangle {
         background: Theme.bg-root;
         border-radius: 2px;
-        horizontal-stretch: 2;
+        horizontal-stretch: 1;
         min-width: 60px;
 
         Rectangle {
@@ -57,14 +62,14 @@ component StatRow inherits HorizontalLayout {
         }
     }
 
-    // Used/total figure, right-aligned; reserve width so it never gets clipped.
-    Text {
+    // About one CJK em (the row label size). Fixed width: the bar grows, not this gap.
+    if root.detail != "" : Rectangle { width: Theme.fs-sm; horizontal-stretch: 0; }
+
+    if root.detail != "" : Text {
         text: detail;
         color: Theme.text-muted;
         font-size: Theme.fs-xs;
-        horizontal-stretch: 1;
-        min-width: 64px;
-        horizontal-alignment: right;
+        horizontal-stretch: 0;
         vertical-alignment: center;
     }
 }
@@ -338,6 +343,7 @@ component StatsBlock inherits VerticalLayout {
     in property <float> cpu-percent;
     in property <float> mem-percent;
     in property <float> swap-percent;
+    in property <string> cpu-detail;
     in property <string> mem-detail;
     in property <string> swap-detail;
     callback show-system-info();
@@ -388,7 +394,7 @@ component StatsBlock inherits VerticalLayout {
                    horizontal-alignment: center; vertical-alignment: center; }
         }
     }
-    StatRow { label: "CPU"; percent: root.cpu-percent; detail: ""; bar-color: Theme.accent; }
+    StatRow { label: "CPU"; percent: root.cpu-percent; detail: root.cpu-detail; bar-color: Theme.accent; }
     StatRow { label: @tr("Memory"); percent: root.mem-percent; detail: root.mem-detail; bar-color: Theme.success; }
     StatRow { label: @tr("Swap"); percent: root.swap-percent; detail: root.swap-detail; bar-color: Theme.warning; }
 }
@@ -434,16 +440,18 @@ component NetBlock inherits VerticalLayout {
     }
     Rectangle {
         height: 16px;
-        mode-ta := TouchArea {
-            mouse-cursor: pointer;
-            clicked => { root.toggle-local-metric(); }
-        }
+        vertical-stretch: 0;
         HorizontalLayout {
-            spacing: 4px;
+            // Title keeps its preferred width; the icon follows about one CJK
+            // em later. The trailing spacer absorbs extra sidebar width so the
+            // icon does not drift toward the middle of the row.
+            spacing: Theme.fs-sm;
+            alignment: start;
             Text {
                 text: root.local-metric-label;
                 color: mode-ta.has-hover ? Theme.text-primary : Theme.text-muted;
                 font-size: Theme.fs-xs;
+                horizontal-stretch: 0;
                 vertical-alignment: center;
             }
             Text {
@@ -451,8 +459,16 @@ component NetBlock inherits VerticalLayout {
                 font-family: "Material Icons";
                 color: Theme.text-muted;
                 font-size: Theme.fs-xs;
+                horizontal-stretch: 0;
                 vertical-alignment: center;
             }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        // On top of the row so the title, the one-character gap, the icon,
+        // and the blank to the right of the icon all toggle the metric.
+        mode-ta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.toggle-local-metric(); }
         }
     }
     if !root.latency-mode : NetGraph {
@@ -557,6 +573,7 @@ export component Sidebar inherits Rectangle {
     in property <float> cpu-percent;
     in property <float> mem-percent;
     in property <float> swap-percent;
+    in property <string> cpu-detail;
     in property <string> mem-detail;
     in property <string> swap-detail;
     in property <string> net-top-up;
@@ -664,6 +681,7 @@ export component Sidebar inherits Rectangle {
                 system-info-available: root.system-info-available;
                 proc-available: root.proc-available;
                 cpu-percent: root.cpu-percent; mem-percent: root.mem-percent; swap-percent: root.swap-percent;
+                cpu-detail: root.cpu-detail;
                 mem-detail: root.mem-detail; swap-detail: root.swap-detail;
                 show-system-info() => { root.show-system-info(); }
                 show-processes() => { root.show-processes(); }
@@ -732,6 +750,7 @@ export component Sidebar inherits Rectangle {
                     system-info-available: root.system-info-available;
                     proc-available: root.proc-available;
                     cpu-percent: root.cpu-percent; mem-percent: root.mem-percent; swap-percent: root.swap-percent;
+                    cpu-detail: root.cpu-detail;
                     mem-detail: root.mem-detail; swap-detail: root.swap-detail;
                     show-system-info() => { root.show-system-info(); }
                     show-processes() => { root.show-processes(); }

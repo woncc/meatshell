@@ -102,6 +102,49 @@ impl SystemSampler {
     }
 }
 
+/// Format a 1-minute load average with exactly 3 significant digits.
+///
+/// `0.123`, `1.23`, and `12.3` are the usual shapes. Trailing zeros stay so
+/// a value like `1.20` does not collapse to 2 digits. Zero is `0.000`.
+/// Non-finite or negative input is `--`.
+pub fn format_load_average(value: f64) -> String {
+    if !value.is_finite() || value < 0.0 {
+        return "--".to_string();
+    }
+    if value == 0.0 {
+        return "0.000".to_string();
+    }
+    let mut exp = value.log10().floor() as i32;
+    let mut coef = (value / 10f64.powi(exp) * 100.0).round();
+    if coef >= 1000.0 {
+        coef /= 10.0;
+        exp += 1;
+    }
+    if coef <= 0.0 || !coef.is_finite() {
+        return "0.000".to_string();
+    }
+    let digits = format!("{:03}", coef as i32);
+    if exp < -6 || exp > 8 {
+        let coeff = coef / 100.0;
+        return format!("{coeff:.2}e{exp}");
+    }
+    if exp < 0 {
+        let zeros = (-exp - 1) as usize;
+        let mut out = String::from("0.");
+        out.extend(std::iter::repeat('0').take(zeros));
+        out.push_str(&digits);
+        return out;
+    }
+    if exp >= 2 {
+        let mut out = digits;
+        out.extend(std::iter::repeat('0').take((exp - 2) as usize));
+        return out;
+    }
+    let split = exp as usize + 1;
+    let (whole, frac) = digits.split_at(split);
+    format!("{whole}.{frac}")
+}
+
 /// Format a used/total memory pair (both in MiB) for the narrow sidebar.
 /// Below 1 GiB it stays in megabytes (`512/2048M`); at or above, it switches to
 /// gigabytes and drops the decimal for whole or large values to stay compact
@@ -236,6 +279,34 @@ fn format_axis_coef(numer: u128, denom: u128) -> String {
         frac_s.pop();
     }
     format!("{whole}.{frac_s}")
+}
+
+#[cfg(test)]
+mod load_average_tests {
+    use super::format_load_average;
+
+    #[test]
+    fn three_significant_digits_match_the_sidebar_examples() {
+        assert_eq!(format_load_average(0.123), "0.123");
+        assert_eq!(format_load_average(1.23), "1.23");
+        assert_eq!(format_load_average(12.3), "12.3");
+    }
+
+    #[test]
+    fn rounds_and_keeps_exactly_three_significant_digits() {
+        assert_eq!(format_load_average(0.0), "0.000");
+        assert_eq!(format_load_average(0.1234), "0.123");
+        assert_eq!(format_load_average(1.234), "1.23");
+        assert_eq!(format_load_average(1.2), "1.20");
+        assert_eq!(format_load_average(12.34), "12.3");
+        assert_eq!(format_load_average(9.996), "10.0");
+        assert_eq!(format_load_average(99.96), "100");
+        assert_eq!(format_load_average(0.09996), "0.100");
+        assert_eq!(format_load_average(0.001234), "0.00123");
+        assert_eq!(format_load_average(1234.0), "1230");
+        assert_eq!(format_load_average(f64::NAN), "--");
+        assert_eq!(format_load_average(-1.0), "--");
+    }
 }
 
 #[cfg(test)]

@@ -102,7 +102,9 @@ use crate::config::{
 use crate::i18n::t;
 use crate::layout::{LogicalRect, TerminalWheelHit};
 use crate::resource::latency::local_metric_view;
-use crate::resource::system::{format_axis_rate, format_bytes_per_sec, format_mem};
+use crate::resource::system::{
+    format_axis_rate, format_bytes_per_sec, format_load_average, format_mem,
+};
 use crate::resource::{
     LocalGpuInfo, LocalHardwareInfo, LocalMachine, LocalSnap, NetHist, RateHist, TabStatus,
     TabStatuses,

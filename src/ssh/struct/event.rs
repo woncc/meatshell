@@ -58,6 +58,9 @@ pub enum SessionEvent {
     /// Memory/swap are in KiB (as reported by /proc/meminfo).
     ResourceStats {
         cpu_percent: f32,
+        /// 1-minute load average (`/proc/loadavg` field 1). None when this
+        /// sample did not include one.
+        load1: Option<f64>,
         mem_used_kib: u64,
         mem_total_kib: u64,
         swap_used_kib: u64,

@@ -118,6 +118,7 @@ pub(super) fn refresh_sidebar(
     let show_local_res = |win: &AppWindow| {
         win.set_resource_title(t("本机资源", "Local resources").into());
         win.set_cpu_percent(snap.cpu_percent);
+        win.set_cpu_detail("".into());
         win.set_mem_percent(snap.mem_percent);
         win.set_swap_percent(snap.swap_percent);
         win.set_mem_detail(format_mem(snap.mem_used_mib, snap.mem_total_mib).into());
@@ -125,6 +126,7 @@ pub(super) fn refresh_sidebar(
     };
     let clear_stats = |win: &AppWindow| {
         win.set_cpu_percent(0.0);
+        win.set_cpu_detail("".into());
         win.set_mem_percent(0.0);
         win.set_swap_percent(0.0);
         win.set_mem_detail("".into());
@@ -300,6 +302,7 @@ pub(super) fn refresh_sidebar(
             present_connection(win, &st, st.host.clone());
             win.set_resource_title(t("服务器资源", "Server resources").into());
             win.set_cpu_percent(st.cpu);
+            win.set_cpu_detail(st.load1.map(format_load_average).unwrap_or_default().into());
             win.set_mem_percent(pct(st.mem_used_kib, st.mem_total_kib));
             win.set_swap_percent(pct(st.swap_used_kib, st.swap_total_kib));
             win.set_mem_detail(format_mem(st.mem_used_kib / 1024, st.mem_total_kib / 1024).into());

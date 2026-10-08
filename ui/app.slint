@@ -371,6 +371,7 @@ export component AppWindow inherits Window {
     in property <float> cpu-percent;
     in property <float> mem-percent;
     in property <float> swap-percent;
+    in property <string> cpu-detail;
     in property <string> mem-detail;
     in property <string> swap-detail;
     // Dual network panel. "top" follows the active tab (remote NIC on a
@@ -1727,6 +1728,7 @@ export component AppWindow inherits Window {
                 cpu-percent: root.cpu-percent;
                 mem-percent: root.mem-percent;
                 swap-percent: root.swap-percent;
+                cpu-detail: root.cpu-detail;
                 mem-detail: root.mem-detail;
                 swap-detail: root.swap-detail;
                 net-top-up: root.net-top-up;
@@ -2355,6 +2357,7 @@ export component AppWindow inherits Window {
                     cpu-percent: root.cpu-percent;
                     mem-percent: root.mem-percent;
                     swap-percent: root.swap-percent;
+                    cpu-detail: root.cpu-detail;
                     mem-detail: root.mem-detail;
                     swap-detail: root.swap-detail;
                     net-top-up: root.net-top-up;
