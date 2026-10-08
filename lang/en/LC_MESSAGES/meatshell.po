@@ -693,3 +693,9 @@ msgstr "Save session"
 
 msgid "Create session"
 msgstr "Create session"
+
+msgid "Show local speed and latency"
+msgstr "Show local speed and latency"
+
+msgid "Off hides that sidebar block. The filesystem list moves up."
+msgstr "Off hides that sidebar block. The filesystem list moves up."

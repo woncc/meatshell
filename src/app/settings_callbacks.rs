@@ -317,6 +317,7 @@ pub(super) fn wire_layout_prefs(ctx: &WinCtx) {
         window.set_collapse_sftp_default(collapse_sftp);
         let local_latency = s.local_panel_latency();
         window.set_local_latency_mode(local_latency);
+        window.set_show_local_metric(s.show_local_metric());
         window.set_local_metric_label(
             (if local_latency {
                 t("延迟", "Latency")
@@ -395,6 +396,14 @@ pub(super) fn wire_layout_prefs(ctx: &WinCtx) {
                 );
                 w.invoke_refresh_sidebar();
             }
+        });
+    }
+    {
+        let store = store.clone();
+        window.on_set_show_local_metric(move |show| {
+            let mut s = store.borrow_mut();
+            s.set_show_local_metric(show);
+            let _ = s.save();
         });
     }
     {

@@ -421,6 +421,9 @@ component NetBlock inherits VerticalLayout {
     in property <brush> up-color: Theme.success;
     in property <brush> down-color: Theme.accent;
     in property <bool> latency-mode: false;
+    // Default on. Off removes the title, toggle, and local chart so the
+    // filesystem block below can move up with no leftover gap.
+    in property <bool> show-local-metric: true;
     in property <string> local-metric-label: "Local speed";
     in property <string> latency-text: "--";
     in property <[float]> latency-history;
@@ -438,7 +441,7 @@ component NetBlock inherits VerticalLayout {
         iface-selected(i) => { root.select-net-iface(i); }
         plot-resized(px) => { root.rate-plot-resized(px); }
     }
-    Rectangle {
+    if root.show-local-metric : Rectangle {
         height: 16px;
         vertical-stretch: 0;
         HorizontalLayout {
@@ -471,13 +474,13 @@ component NetBlock inherits VerticalLayout {
             clicked => { root.toggle-local-metric(); }
         }
     }
-    if !root.latency-mode : NetGraph {
+    if root.show-local-metric && !root.latency-mode : NetGraph {
         up-text: root.net-bot-up; down-text: root.net-bot-down; history: root.net-bot-history;
         history-up: root.net-bot-up-history;
         axis-top: root.net-bot-axis-top; axis-mid: root.net-bot-axis-mid;
         up-color: root.up-color; down-color: root.down-color;
     }
-    if root.latency-mode : VerticalLayout {
+    if root.show-local-metric && root.latency-mode : VerticalLayout {
         // Same contract as NetGraph: stay at the preferred height. Stretching
         // this body lets the value text grow and leaves a blank band above the
         // sparkline (or between this panel and the disk list).
@@ -592,6 +595,7 @@ export component Sidebar inherits Rectangle {
     in property <brush> net-down-color: Theme.accent;
     // Default false: the local panel shows realtime speed. True shows latency.
     in property <bool> local-latency-mode: false;
+    in property <bool> show-local-metric: true;
     in property <string> local-metric-label: "Local speed";
     in property <string> local-latency-text: "--";
     in property <[float]> local-latency-history;
@@ -697,6 +701,7 @@ export component Sidebar inherits Rectangle {
                 net-bot-axis-top: root.net-bot-axis-top; net-bot-axis-mid: root.net-bot-axis-mid;
                 up-color: root.net-up-color; down-color: root.net-down-color;
                 latency-mode: root.local-latency-mode;
+                show-local-metric: root.show-local-metric;
                 local-metric-label: root.local-metric-label;
                 latency-text: root.local-latency-text;
                 latency-history: root.local-latency-history;
@@ -768,6 +773,7 @@ export component Sidebar inherits Rectangle {
                 net-bot-axis-top: root.net-bot-axis-top; net-bot-axis-mid: root.net-bot-axis-mid;
                 up-color: root.net-up-color; down-color: root.net-down-color;
                 latency-mode: root.local-latency-mode;
+                show-local-metric: root.show-local-metric;
                 local-metric-label: root.local-metric-label;
                 latency-text: root.local-latency-text;
                 latency-history: root.local-latency-history;

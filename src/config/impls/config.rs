@@ -1276,6 +1276,16 @@ impl ConfigStore {
         self.cache.local_panel_metric = if latency { "latency" } else { "speed" }.into();
     }
 
+    /// Sidebar local speed/latency block. On unless the user hid it.
+    /// A config written before the key existed stays on.
+    pub fn show_local_metric(&self) -> bool {
+        !self.cache.hide_local_metric
+    }
+
+    pub fn set_show_local_metric(&mut self, show: bool) {
+        self.cache.hide_local_metric = !show;
+    }
+
     /// Upload color override. Empty means the theme green (distinct from download).
     pub fn net_up_color(&self) -> String {
         normalize_hex_color(&self.cache.net_up_color).unwrap_or_default()
@@ -2371,6 +2381,29 @@ mod tests {
         assert_eq!(store.cache.local_panel_metric, "speed");
         store.cache.local_panel_metric = "nope".into();
         assert!(!store.local_panel_latency());
+    }
+
+    #[test]
+    fn show_local_metric_defaults_on_and_round_trips() {
+        let missing: ConfigFile = serde_json::from_str("{}").unwrap();
+        assert!(!missing.hide_local_metric);
+        let mut store = temp_store();
+        assert!(store.show_local_metric());
+        store.cache = missing;
+        assert!(store.show_local_metric());
+        store.set_show_local_metric(false);
+        assert!(!store.show_local_metric());
+        let raw = serde_json::to_string(&store.cache).unwrap();
+        let hidden: ConfigFile = serde_json::from_str(&raw).unwrap();
+        assert!(hidden.hide_local_metric);
+        store.cache = hidden;
+        assert!(!store.show_local_metric());
+        store.set_show_local_metric(true);
+        let raw = serde_json::to_string(&store.cache).unwrap();
+        let shown: ConfigFile = serde_json::from_str(&raw).unwrap();
+        assert!(!shown.hide_local_metric);
+        store.cache = shown;
+        assert!(store.show_local_metric());
     }
 
     #[test]

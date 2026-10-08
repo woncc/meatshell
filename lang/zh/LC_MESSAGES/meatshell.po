@@ -690,3 +690,9 @@ msgstr "保存会话"
 
 msgid "Create session"
 msgstr "创建会话"
+
+msgid "Show local speed and latency"
+msgstr "显示本机速度和延迟"
+
+msgid "Off hides that sidebar block. The filesystem list moves up."
+msgstr "关闭后隐藏侧栏中的该区域，文件系统列表上移补位。"

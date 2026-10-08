@@ -401,6 +401,9 @@ export component AppWindow inherits Window {
     callback set-net-up-color(string) -> bool;
     callback set-net-down-color(string) -> bool;
     in-out property <bool> local-latency-mode: false;
+    // Local speed/latency block under the remote graph. Default on.
+    in-out property <bool> show-local-metric: true;
+    callback set-show-local-metric(bool);
     in property <string> local-metric-label: "Local speed";
     in property <string> local-latency-text: "--";
     in property <[float]> local-latency-history;
@@ -1746,6 +1749,7 @@ export component AppWindow inherits Window {
                 net-up-color: root.net-up-brush;
                 net-down-color: root.net-down-brush;
                 local-latency-mode: root.local-latency-mode;
+                show-local-metric: root.show-local-metric;
                 local-metric-label: root.local-metric-label;
                 local-latency-text: root.local-latency-text;
                 local-latency-history: root.local-latency-history;
@@ -2375,6 +2379,7 @@ export component AppWindow inherits Window {
                     net-up-color: root.net-up-brush;
                     net-down-color: root.net-down-brush;
                     local-latency-mode: root.local-latency-mode;
+                    show-local-metric: root.show-local-metric;
                     local-metric-label: root.local-metric-label;
                     local-latency-text: root.local-latency-text;
                     local-latency-history: root.local-latency-history;
@@ -5309,6 +5314,7 @@ export component AppWindow inherits Window {
                     sftp-follow-cd <=> root.sftp-follow-cd;
                     collapse-sidebar-default <=> root.collapse-sidebar-default;
                     local-latency-mode <=> root.local-latency-mode;
+                    show-local-metric <=> root.show-local-metric;
                     net-up-color-hex <=> root.net-up-color-hex;
                     net-down-color-hex <=> root.net-down-color-hex;
                     net-up-color: root.net-up-color;
@@ -5372,6 +5378,7 @@ export component AppWindow inherits Window {
                     set-sftp-follow-cd(v) => { root.set-sftp-follow-cd(v); }
                     set-collapse-sidebar-default(v) => { root.set-collapse-sidebar-default(v); }
                     set-local-latency-mode(v) => { root.set-local-latency-mode(v); }
+                    set-show-local-metric(v) => { root.set-show-local-metric(v); }
                     set-net-up-color(v) => { root.set-net-up-color(v) }
                     set-net-down-color(v) => { root.set-net-down-color(v) }
                     set-collapse-sftp-default(v) => { root.set-collapse-sftp-default(v); }

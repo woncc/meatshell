@@ -236,6 +236,10 @@ pub struct ConfigFile {
     /// to the active SSH or Telnet host. Missing or unknown values stay on speed.
     #[serde(default = "default_local_panel_metric")]
     pub local_panel_metric: String,
+    /// Hide the sidebar local speed/latency block (title, toggle, and chart).
+    /// Missing or false keeps it visible, so older configs are unchanged.
+    #[serde(default)]
+    pub hide_local_metric: bool,
     /// Custom upload color for the rate graph. Empty keeps the theme green.
     #[serde(default)]
     pub net_up_color: String,

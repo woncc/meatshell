@@ -379,6 +379,7 @@ export component InterfacePanel inherits Rectangle {
     in-out property <bool> sftp-follow-cd;
     in-out property <bool> collapse-sidebar-default;
     in-out property <bool> local-latency-mode: false;
+    in-out property <bool> show-local-metric: true;
     in-out property <string> net-up-color-hex: "";
     in-out property <string> net-down-color-hex: "";
     in property <color> net-up-color: #34c759;
@@ -447,6 +448,7 @@ export component InterfacePanel inherits Rectangle {
     callback set-sftp-follow-cd(bool);
     callback set-collapse-sidebar-default(bool);
     callback set-local-latency-mode(bool);
+    callback set-show-local-metric(bool);
     callback set-net-up-color(string) -> bool;
     callback set-net-down-color(string) -> bool;
     callback set-collapse-sftp-default(bool);
@@ -1417,6 +1419,14 @@ export component InterfacePanel inherits Rectangle {
                     Switch {
                         on: root.collapse-sidebar-default;
                         toggled(v) => { root.collapse-sidebar-default = v; root.set-collapse-sidebar-default(v); }
+                    }
+                }
+                SettingRow {
+                    label: @tr("Show local speed and latency");
+                    desc: @tr("Off hides that sidebar block. The filesystem list moves up.");
+                    Switch {
+                        on: root.show-local-metric;
+                        toggled(v) => { root.show-local-metric = v; root.set-show-local-metric(v); }
                     }
                 }
                 SettingRow {
