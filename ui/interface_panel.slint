@@ -1462,10 +1462,8 @@ export component InterfacePanel inherits Rectangle {
                     }
                 }
                 SettingRow {
-                    label: root.lang-en ? "Zen mode" : "专注模式";
-                    desc: root.lang-en
-                        ? "Hide side panels and collapsed edge strips so the terminal fills the window."
-                        : "隐藏侧栏、底栏和收起图标，让终端填满窗口内容区。";
+                    label: @tr("Zen mode");
+                    desc: @tr("Hide side panels, the quick-command panel, the SFTP panel, and collapsed edge strips so the terminal fills the window.");
                     Switch {
                         on: root.zen-mode;
                         toggled(v) => { root.zen-mode = v; root.set-zen-mode(v); }

@@ -696,3 +696,12 @@ msgstr "显示本机速度和延迟"
 
 msgid "Off hides that sidebar block. The filesystem list moves up."
 msgstr "关闭后隐藏侧栏中的该区域，文件系统列表上移补位。"
+
+msgid "Focus"
+msgstr "专注"
+
+msgid "Zen mode"
+msgstr "专注模式"
+
+msgid "Hide side panels, the quick-command panel, the SFTP panel, and collapsed edge strips so the terminal fills the window."
+msgstr "隐藏侧栏、快捷命令面板、SFTP 面板和收起图标，让终端填满窗口内容区。"

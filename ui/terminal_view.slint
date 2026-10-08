@@ -638,11 +638,15 @@ export component TerminalView inherits Rectangle {
         // Side-docked SFTP needs enough room for its compact action row and a
         // usable path field. Clamp legacy/saved widths below that floor instead
         // of letting Slint squeeze controls out of alignment.
-        property <length> sf-w: root.sftp-collapsed ? 36px
+        // Focus mode hides the SFTP panel and its collapsed strip. The
+        // per-tab collapsed flag is left alone so it comes back afterwards.
+        property <length> sf-w: root.zen-mode ? 0px
+            : root.sftp-collapsed ? 36px
             : root.sftp-horizontal ? max(300px, root.sftp-panel-width)
             : root.sftp-panel-width;
-        property <length> sf-h: root.sftp-collapsed ? 36px : root.sftp-panel-height;
-        property <length> sp: root.sftp-collapsed ? 0px : 4px;
+        property <length> sf-h: root.zen-mode ? 0px
+            : root.sftp-collapsed ? 36px : root.sftp-panel-height;
+        property <length> sp: root.zen-mode || root.sftp-collapsed ? 0px : 4px;
         // The collapsed bar (sf-h) already reserves the bottom strip now.
         property <length> bottom-strip-h: 0px;
 
@@ -1457,7 +1461,12 @@ export component TerminalView inherits Rectangle {
                     background: qc-ta.has-hover || root.quick-open ? Theme.bg-hover : Theme.bg-elevated;
                     qc-ta := TouchArea {
                         mouse-cursor: pointer;
-                        clicked => { root.history-open = false; root.quick-open = !root.quick-open; }
+                        clicked => {
+                            if (!root.zen-mode) {
+                                root.history-open = false;
+                                root.quick-open = !root.quick-open;
+                            }
+                        }
                     }
                     qc-row := HorizontalLayout {
                         width: parent.width; height: parent.height;
@@ -1695,7 +1704,7 @@ export component TerminalView inherits Rectangle {
             }
 
             // --- Quick-command popup (opens upward) --------------------------
-            if root.quick-open : Rectangle {
+            if root.quick-open && !root.zen-mode : Rectangle {
                 x: 8px;
                 width: 420px;
                 height: min(320px, qc-col.preferred-height + 8px);
@@ -2130,7 +2139,7 @@ export component TerminalView inherits Rectangle {
 
         // --- SFTP resize splitter (orientation follows the dock edge) -------
         Rectangle {
-            visible: root.sftp-available && !root.sftp-collapsed;   // gone when collapsed (like the resource splitter)
+            visible: root.sftp-available && !root.sftp-collapsed && !root.zen-mode;
             x: root.sftp-dock == "left"   ? parent.sf-w
              : root.sftp-dock == "right"  ? parent.width - parent.sf-w - 4px
              : 0px;
@@ -2185,7 +2194,7 @@ export component TerminalView inherits Rectangle {
         }
 
         // --- SFTP panel — positioned on the docked edge ---------------------
-        if root.sftp-available : SftpPanel {
+        if root.sftp-available && !root.zen-mode : SftpPanel {
             x: root.sftp-dock == "right"  ? parent.width - parent.sf-w : 0px;
             y: root.sftp-dock == "bottom" ? parent.height - parent.sf-h : 0px;
             width:  root.sftp-horizontal ? parent.sf-w : parent.width;
@@ -2294,7 +2303,7 @@ export component TerminalView inherits Rectangle {
 
         // Collapsed → a ToolStrip icon bar at the docked edge (M5), filling the
         // 36px slot the panel shrank to; click the icon to re-expand.
-        if root.sftp-collapsed : ToolStrip {
+        if root.sftp-collapsed && !root.zen-mode : ToolStrip {
             x: root.sftp-dock == "right"  ? parent.width - parent.sf-w : 0px;
             y: root.sftp-dock == "bottom" ? parent.height - parent.sf-h : 0px;
             width:  root.sftp-horizontal ? parent.sf-w : parent.width;

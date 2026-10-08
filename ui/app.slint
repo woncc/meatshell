@@ -2471,7 +2471,7 @@ export component AppWindow inherits Window {
                     delete-group(name) => { root.delete-group(name); }
                     remove-session(id) => { root.remove-session(id); }
                 }
-                if gp.kind == "quick" : QuickDockPanel {
+                if gp.kind == "quick" && !root.zen-mode : QuickDockPanel {
                     width: parent.width;
                     height: parent.height;
                     commands: root.quick-commands;
@@ -2699,6 +2699,51 @@ export component AppWindow inherits Window {
             ? (root.cmd-bar-hidden ? "Show command bar" : "Hide command bar")
             : (root.cmd-bar-hidden ? "显示命令栏" : "隐藏命令栏");
         clicked => { root.cmd-bar-hidden = !root.cmd-bar-hidden; root.set-cmd-bar-hidden(root.cmd-bar-hidden); }
+    }
+    // Left-most toolbar button. Later buttons stay to its right so the
+    // group remains right-aligned and Focus stays at the left end.
+    focus-btn := Rectangle {
+        width: focus-label.preferred-width + 16px;
+        height: 26px;
+        x: root.width - 184px - root.toolbar-x-off - 6px - self.width;
+        y: root.toolbar-y;
+        border-radius: Theme.radius-sm;
+        background: focus-ta.has-hover ? Theme.bg-hover : transparent;
+        focus-ta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                root.zen-mode = !root.zen-mode;
+                root.set-zen-mode(root.zen-mode);
+            }
+        }
+        focus-label := Text {
+            x: 8px;
+            text: @tr("Focus");
+            color: root.zen-mode ? Theme.text-primary : Theme.text-muted;
+            font-size: Theme.fs-sm;
+            font-weight: root.zen-mode ? 600 : 400;
+            vertical-alignment: center;
+            height: parent.height;
+        }
+        if focus-ta.has-hover : Rectangle {
+            y: parent.height + 5px;
+            x: parent.width - self.width;
+            width: focus-tip.preferred-width + 16px;
+            height: 22px;
+            background: Theme.bg-elevated;
+            border-radius: Theme.radius-sm;
+            border-width: 1px;
+            border-color: Theme.border-strong;
+            focus-tip := Text {
+                text: root.lang-en ? "Zen mode" : "专注模式";
+                color: Theme.text-primary;
+                font-size: Theme.fs-xs;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                width: parent.width;
+                height: parent.height;
+            }
+        }
     }
     IconBtn {
         x: root.width - 184px - root.toolbar-x-off; y: root.toolbar-y;

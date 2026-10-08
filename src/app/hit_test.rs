@@ -35,21 +35,20 @@ pub(super) fn terminal_wheel_hit(
     let mut term_w = term.w;
     let mut term_h = term.h;
 
-    // Zen mode removes only the 24px status strip; docks and the command bar
-    // stay on screen.
+    // Zen mode removes the 24px status strip. The SFTP panel is hidden too,
+    // so it must not keep eating wheel hits.
     if !win.get_zen_mode() {
         term_y += 24.0;
         term_h = (term_h - 24.0).max(0.0);
     }
 
     let sftp_dock = win.get_sftp_dock().to_string();
-    let sftp_take = if term_state.sftp_collapsed {
-        36.0
-    } else if sftp_dock == "left" || sftp_dock == "right" {
-        term_state.sftp_panel_width + 4.0
+    let expanded = if sftp_dock == "left" || sftp_dock == "right" {
+        term_state.sftp_panel_width
     } else {
-        term_state.sftp_panel_height + 4.0
+        term_state.sftp_panel_height
     };
+    let sftp_take = sftp_panel_take(win.get_zen_mode(), term_state.sftp_collapsed, expanded);
     shrink_edge(
         &mut term_x,
         &mut term_y,
@@ -243,7 +242,8 @@ pub(super) fn active_terminal_panel_rects(
 #[allow(dead_code)]
 pub(super) fn active_sftp_file_list_rect(win: &AppWindow) -> Option<LogicalRect> {
     let (_active, term, term_state) = active_terminal_panel_rects(win)?;
-    if term_state.sftp_collapsed {
+    // Focus mode hides SFTP on every tab; the stored collapse flag stays put.
+    if win.get_zen_mode() || term_state.sftp_collapsed {
         return None;
     }
 
@@ -288,4 +288,39 @@ pub(super) fn active_sftp_file_list_rect(win: &AppWindow) -> Option<LogicalRect>
         panel.w = (panel.w - 160.0 - 1.0).max(0.0);
     }
     Some(panel)
+}
+
+/// Thickness the SFTP panel occupies inside a terminal.
+/// Focus mode (`zen`) hides the panel and its collapsed strip, on every tab.
+pub(crate) fn sftp_panel_take(zen: bool, collapsed: bool, panel: f32) -> f32 {
+    if zen {
+        0.0
+    } else if collapsed {
+        36.0
+    } else {
+        panel + 4.0
+    }
+}
+
+/// Focus mode hides the quick-command panel and the SFTP panel together.
+/// The decision does not depend on which session tab is active.
+pub(crate) fn focus_hides_quick_and_sftp(zen: bool) -> bool {
+    zen
+}
+
+#[cfg(test)]
+mod focus_panel_tests {
+    use super::{focus_hides_quick_and_sftp, sftp_panel_take};
+
+    #[test]
+    fn focus_mode_hides_sftp_and_quick_panels_across_tabs() {
+        assert!(focus_hides_quick_and_sftp(true));
+        assert!(!focus_hides_quick_and_sftp(false));
+        // Expanded and collapsed tabs both lose the panel while focus is on.
+        assert_eq!(sftp_panel_take(true, false, 380.0), 0.0);
+        assert_eq!(sftp_panel_take(true, true, 380.0), 0.0);
+        // Turning focus off restores the tab's own state.
+        assert_eq!(sftp_panel_take(false, true, 380.0), 36.0);
+        assert_eq!(sftp_panel_take(false, false, 380.0), 384.0);
+    }
 }
