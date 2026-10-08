@@ -3,6 +3,24 @@
 All notable changes are documented here. 本文件记录所有重要变更。
 中英对照（中文在前，English after）.
 
+v0.7.9
+
+新功能 / Features
+
+- 设置 → 侧栏新增「显示本机速度和延迟」（默认开启）；关闭后隐藏侧栏该区域的标题、切换按钮和图表，下方文件系统列表上移补位，不留空白。(#23)
+  Settings → Sidebars gains "Show local speed and latency" (on by default); turning it off hides that block's title, toggle and chart, and the filesystem list moves up with no gap. (#23)
+- 主窗口右侧工具按钮组最左边新增文字按钮「专注」，与「设置 → 侧栏 → 专注模式」双向同步：未开启时文字较淡，开启时为正常文字色。专注模式下隐藏快捷命令面板和 SFTP 面板，切换标签页后仍保持隐藏。(#24)
+  A "Focus" text button now sits at the left end of the right-aligned toolbar, synced both ways with Settings → Sidebars → Focus mode: dimmed when off, normal text colour when on. Focus mode hides the quick-command and SFTP panels, and they stay hidden across tabs. (#24)
+- 设置 → SFTP 新增「启用 SFTP」总开关（默认开启）；关闭后不再打开 SFTP 连接、不显示 SFTP 面板（与专注模式无关），「SFTP 跟随 cd 更新」置灰且保留原值。(#25)
+  Settings → SFTP gains an "Enable SFTP" master switch (on by default); when off, no SFTP sessions are opened and the SFTP panel is hidden regardless of focus mode, and "SFTP follows cd" is greyed out with its saved value kept. (#25)
+
+修复 / Fixes
+
+- 侧栏：本机速度/延迟切换按钮紧跟标题（约一个汉字间距）；服务器资源条与右侧数值保持约一个汉字的固定间距，侧栏加宽时只拉长条；CPU 右侧显示服务器 1 分钟平均负载（3 位有效数字）。(#22)
+  Sidebar: the local speed/latency toggle sits about one character after its title; server resource bars keep a fixed one-character gap from their values, so widening the sidebar only lengthens the bars; the CPU row shows the server's 1-minute load average (3 significant digits). (#22)
+- SFTP：在连接握手期间关闭总开关时，不会再在后台打开 SFTP 子系统。(#25)
+  SFTP: turning the master switch off during a connection handshake no longer opens an SFTP subsystem in the background. (#25)
+
 v0.7.5
 
 新功能 / Features
