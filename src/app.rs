@@ -263,12 +263,16 @@ pub fn run(_intent: crate::app::launch::LaunchIntent) -> Result<()> {
     // commands into history (#113).
     HISTORY_STORE.with(|s| *s.borrow_mut() = Some(store.clone()));
 
+    let sftp_enabled = Arc::new(std::sync::atomic::AtomicBool::new(
+        store.borrow().sftp_enabled(),
+    ));
     let core = Rc::new(AppCore {
         runtime,
         store,
         registry: Rc::new(WindowRegistry::default()),
         window_states: Rc::new(RefCell::new(HashMap::new())),
         tab_routes: Arc::new(Mutex::new(HashMap::new())),
+        sftp_enabled,
         first_window_done: Cell::new(false),
     });
 

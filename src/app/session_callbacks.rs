@@ -62,6 +62,7 @@ pub(super) fn wire_session_callbacks(
     local_snap: LocalSnap,
     local_net_hist: NetHist,
     sftp_follow_cd: Arc<std::sync::atomic::AtomicBool>,
+    sftp_enabled: Arc<std::sync::atomic::AtomicBool>,
     tab_routes: TabRoutes,
     tab_titles: Rc<RefCell<HashMap<String, String>>>,
     editor_win: Rc<EditorWindow>,
@@ -1182,6 +1183,7 @@ pub(super) fn wire_session_callbacks(
         let local_snap = local_snap.clone();
         let local_net_hist = local_net_hist.clone();
         let sftp_follow_cd = sftp_follow_cd.clone();
+        let sftp_enabled = sftp_enabled.clone();
         let tab_routes = tab_routes.clone();
         window.on_connect_session(move |id: SharedString| {
             let id = id.to_string();
@@ -1437,6 +1439,7 @@ pub(super) fn wire_session_callbacks(
                 local_net_hist: local_net_hist.clone(),
                 last_term_size: last_term_size.clone(),
                 sftp_follow_cd: sftp_follow_cd.clone(),
+                sftp_enabled: sftp_enabled.clone(),
                 store: store.clone(),
                 tab_routes: tab_routes.clone(),
             };

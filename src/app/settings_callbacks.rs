@@ -145,6 +145,8 @@ pub(super) fn wire_interface_toggles(
                 s.set_sftp_enabled(enabled);
                 let _ = s.save();
             }
+            core.sftp_enabled
+                .store(enabled, std::sync::atomic::Ordering::Relaxed);
             for state in core.window_states.borrow().values() {
                 state.main_win.set_sftp_enabled(enabled);
             }

@@ -138,6 +138,7 @@ pub(super) fn start_session_in_tab(tab_id: &str, session: Session, ctx: &Connect
             let sftp_task_runtime = sftp_runtime.clone();
             let sftp_route = route.clone();
             let sftp_tab_id = tab_id.to_string();
+            let sftp_enabled_flag = ctx.sftp_enabled.clone();
             sftp_runtime.spawn(async move {
                 if !matches!(
                     tokio::time::timeout(std::time::Duration::from_secs(30), ready_rx).await,
@@ -146,10 +147,28 @@ pub(super) fn start_session_in_tab(tab_id: &str, session: Session, ctx: &Connect
                     return;
                 }
                 tokio::task::yield_now().await;
+                // The master switch may have been turned off while this
+                // handshake was in flight. Do not open the subsystem then.
+                if !sftp_enabled_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    return;
+                }
                 let sftp_handle = spawn_sftp(sftp_task_runtime.handle(), session, jump, sftp_tx);
+                if !sftp_enabled_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    sftp_handle.close();
+                    sftp_handle.join.abort();
+                    return;
+                }
                 let handles = sftp_route.lock().ok().map(|r| r.sftp_handles.clone());
                 if let Some(handles) = handles {
                     if let Ok(mut handles) = handles.lock() {
+                        if handles.contains_key(&sftp_tab_id)
+                            || !sftp_enabled_flag.load(std::sync::atomic::Ordering::Relaxed)
+                        {
+                            drop(handles);
+                            sftp_handle.close();
+                            sftp_handle.join.abort();
+                            return;
+                        }
                         handles.insert(sftp_tab_id, sftp_handle);
                     }
                 }

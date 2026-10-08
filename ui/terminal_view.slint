@@ -642,9 +642,6 @@ export component TerminalView inherits Rectangle {
         // Side-docked SFTP needs enough room for its compact action row and a
         // usable path field. Clamp legacy/saved widths below that floor instead
         // of letting Slint squeeze controls out of alignment.
-        // Focus mode and the SFTP master switch both hide the panel and its
-        // collapsed strip. The per-tab collapsed flag is left alone.
-        property <bool> sftp-suppressed: root.zen-mode || !root.sftp-enabled;
         property <length> sf-w: root.sftp-suppressed ? 0px
             : root.sftp-collapsed ? 36px
             : root.sftp-horizontal ? max(300px, root.sftp-panel-width)
