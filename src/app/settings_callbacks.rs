@@ -120,14 +120,35 @@ pub(super) fn wire_interface_toggles(
         ..
     } = ctx;
     window.set_sftp_follow_cd(store.borrow().sftp_follow_cd());
+    window.set_sftp_enabled(store.borrow().sftp_enabled());
     {
         let store = store.clone();
         let flag = sftp_follow_cd.clone();
         window.on_set_sftp_follow_cd(move |follow| {
+            // The master switch greys this out. Ignore a stale callback so the
+            // stored preference cannot change while SFTP is off.
+            if !store.borrow().sftp_enabled() {
+                return;
+            }
             flag.store(follow, std::sync::atomic::Ordering::Relaxed);
             let mut s = store.borrow_mut();
             s.set_sftp_follow_cd(follow);
             let _ = s.save();
+        });
+    }
+    {
+        let store = store.clone();
+        let core = ctx.core.clone();
+        window.on_set_sftp_enabled(move |enabled| {
+            {
+                let mut s = store.borrow_mut();
+                s.set_sftp_enabled(enabled);
+                let _ = s.save();
+            }
+            for state in core.window_states.borrow().values() {
+                state.main_win.set_sftp_enabled(enabled);
+            }
+            crate::app::session_runtime::apply_sftp_master_switch(&core, enabled);
         });
     }
 

@@ -1046,6 +1046,15 @@ impl ConfigStore {
         self.cache.sftp_no_follow_cd = !follow;
     }
 
+    /// Global SFTP master switch. Missing keys and `Default` stay on.
+    pub fn sftp_enabled(&self) -> bool {
+        !self.cache.sftp_disabled
+    }
+
+    pub fn set_sftp_enabled(&mut self, enabled: bool) {
+        self.cache.sftp_disabled = !enabled;
+    }
+
     /// Whether the quick-command bar under the terminal is hidden.
     pub fn cmd_bar_hidden(&self) -> bool {
         self.cache.hide_cmd_bar
@@ -2404,6 +2413,26 @@ mod tests {
         assert!(!shown.hide_local_metric);
         store.cache = shown;
         assert!(store.show_local_metric());
+    }
+
+    #[test]
+    fn sftp_master_switch_defaults_on_and_keeps_follow_cd() {
+        let missing: ConfigFile = serde_json::from_str("{}").unwrap();
+        assert!(!missing.sftp_disabled);
+        let mut store = temp_store();
+        assert!(store.sftp_enabled());
+        store.set_sftp_follow_cd(false);
+        store.set_sftp_enabled(false);
+        assert!(!store.sftp_enabled());
+        assert!(!store.sftp_follow_cd());
+        let raw = serde_json::to_string(&store.cache).unwrap();
+        let loaded: ConfigFile = serde_json::from_str(&raw).unwrap();
+        assert!(loaded.sftp_disabled);
+        assert!(loaded.sftp_no_follow_cd);
+        store.cache = loaded;
+        store.set_sftp_enabled(true);
+        assert!(store.sftp_enabled());
+        assert!(!store.sftp_follow_cd());
     }
 
     #[test]

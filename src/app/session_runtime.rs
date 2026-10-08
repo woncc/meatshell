@@ -20,17 +20,20 @@ pub(super) fn resolve_jump(
     store.borrow().resolve_jump_chain(session)
 }
 
-pub(super) fn should_start_sftp(session: &Session) -> bool {
+pub(super) fn should_start_sftp(session: &Session, sftp_enabled: bool) -> bool {
     // Shell-integration compatibility must not hide SFTP. Auto-login scripts
     // can require the shell hooks to be disabled while still using SFTP.
-    session.kind == SessionKind::Ssh
+    // The settings master switch is the only global off switch.
+    sftp_enabled && session.kind == SessionKind::Ssh
 }
 
 /// Spawn the shell (+ SFTP) workers and their event-pump threads for an
 /// already-registered tab. Used by the initial connect and by in-place
 /// reconnect (#79); the tab/terminal/parser must already exist.
 pub(super) fn start_session_in_tab(tab_id: &str, session: Session, ctx: &ConnectCtx) {
-    let has_sftp = should_start_sftp(&session);
+    let sftp_enabled = ctx.store.borrow().sftp_enabled();
+    let has_sftp = should_start_sftp(&session, sftp_enabled);
+    sync_terminal_sftp_availability(ctx, tab_id, has_sftp);
     let (initial_cols, initial_rows) = *ctx.last_term_size.lock().unwrap();
     // Resolve every ancestor on the UI thread before starting any worker.
     // Invalid chains must never silently fall back to a direct connection.
@@ -114,44 +117,48 @@ pub(super) fn start_session_in_tab(tab_id: &str, session: Session, ctx: &Connect
         sftp_handles: ctx.sftp_handles.clone(),
         sftp_last_cwd: ctx.sftp_last_cwd.clone(),
         follow_cd: ctx.sftp_follow_cd.clone(),
+        sftp_events: None,
     }));
     if let Ok(mut routes) = ctx.tab_routes.lock() {
         routes.insert(tab_id.to_string(), route.clone());
     }
 
-    // Separate SFTP connection for the same session (SSH only). It waits for
-    // the interactive PTY to report Connected so a second SSH handshake cannot
-    // contend with terminal startup on the same host/network path.
-    let (sftp_evt_tx, sftp_ready_tx) = if has_sftp {
+    // SSH tabs keep an SFTP event channel even when the master switch is off,
+    // so turning SFTP back on can attach a worker without rebuilding the pump.
+    // The worker itself is started only while the switch is on, and only after
+    // the interactive PTY reports Connected.
+    let (sftp_evt_tx, sftp_ready_tx) = if session.kind == SessionKind::Ssh {
         let (sftp_tx, sftp_rx) = tokio::sync::mpsc::unbounded_channel::<SessionEvent>();
-        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
-        let sftp_runtime = ctx.runtime.clone();
-        let sftp_task_runtime = sftp_runtime.clone();
-        // Read the handle map through the route at insertion time: if the tab
-        // is dragged to another window while we connect, the route already
-        // points at the destination and the handle must land there.
-        let sftp_route = route.clone();
-        let sftp_tab_id = tab_id.to_string();
-        sftp_runtime.spawn(async move {
-            // The interactive PTY may never report Connected (stalled
-            // handshake); bound the wait so this bootstrap task cannot
-            // outlive the tab forever.
-            if !matches!(
-                tokio::time::timeout(std::time::Duration::from_secs(30), ready_rx).await,
-                Ok(Ok(()))
-            ) {
-                return;
-            }
-            tokio::task::yield_now().await;
-            let sftp_handle = spawn_sftp(sftp_task_runtime.handle(), session, jump, sftp_tx);
-            let handles = sftp_route.lock().ok().map(|r| r.sftp_handles.clone());
-            if let Some(handles) = handles {
-                if let Ok(mut handles) = handles.lock() {
-                    handles.insert(sftp_tab_id, sftp_handle);
+        if let Ok(mut guard) = route.lock() {
+            guard.sftp_events = Some(sftp_tx.clone());
+        }
+        let ready_tx = if has_sftp {
+            let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
+            let sftp_runtime = ctx.runtime.clone();
+            let sftp_task_runtime = sftp_runtime.clone();
+            let sftp_route = route.clone();
+            let sftp_tab_id = tab_id.to_string();
+            sftp_runtime.spawn(async move {
+                if !matches!(
+                    tokio::time::timeout(std::time::Duration::from_secs(30), ready_rx).await,
+                    Ok(Ok(()))
+                ) {
+                    return;
                 }
-            }
-        });
-        (Some(sftp_rx), Some(ready_tx))
+                tokio::task::yield_now().await;
+                let sftp_handle = spawn_sftp(sftp_task_runtime.handle(), session, jump, sftp_tx);
+                let handles = sftp_route.lock().ok().map(|r| r.sftp_handles.clone());
+                if let Some(handles) = handles {
+                    if let Ok(mut handles) = handles.lock() {
+                        handles.insert(sftp_tab_id, sftp_handle);
+                    }
+                }
+            });
+            Some(ready_tx)
+        } else {
+            None
+        };
+        (Some(sftp_rx), ready_tx)
     } else {
         (None, None)
     };
@@ -439,6 +446,125 @@ pub(super) fn start_session_in_tab(tab_id: &str, session: Session, ctx: &Connect
     }
 }
 
+fn sync_terminal_sftp_availability(ctx: &ConnectCtx, tab_id: &str, has_sftp: bool) {
+    let Some(win) = ctx.weak.upgrade() else {
+        return;
+    };
+    let terminals = win.get_terminals();
+    let Some(model) = terminals.as_any().downcast_ref::<VecModel<TerminalState>>() else {
+        return;
+    };
+    let collapse_default = win.get_collapse_sftp_default();
+    crate::app::panes::update_terminal_row(model, tab_id, |row| {
+        let was_available = row.sftp_available;
+        row.sftp_available = has_sftp;
+        if has_sftp && !was_available {
+            row.sftp_collapsed = collapse_default;
+        } else if !has_sftp {
+            row.sftp_collapsed = true;
+        }
+    });
+}
+
+/// Close every live SFTP worker, or attach one for each connected SSH tab
+/// that does not have one yet. The cd-follow preference is not touched.
+pub(super) fn apply_sftp_master_switch(core: &crate::app::core::AppCore, enabled: bool) {
+    if !enabled {
+        let states = core.window_states.borrow();
+        for state in states.values() {
+            if let Ok(mut handles) = state.sftp_handles.lock() {
+                for handle in handles.values() {
+                    handle.close();
+                    handle.join.abort();
+                }
+                handles.clear();
+            }
+        }
+        return;
+    }
+
+    struct PendingSftp {
+        tab_id: String,
+        events: tokio::sync::mpsc::UnboundedSender<SessionEvent>,
+        handles: crate::sftp::SftpHandles,
+        window: slint::Weak<AppWindow>,
+        session: crate::config::Session,
+        jump: Vec<crate::config::Session>,
+    }
+    let mut pending = Vec::new();
+    {
+        let Ok(routes) = core.tab_routes.lock() else {
+            return;
+        };
+        let store = core.store.borrow();
+        for (tab_id, route_lock) in routes.iter() {
+            let Ok(route) = route_lock.lock() else {
+                continue;
+            };
+            let Some(events) = route.sftp_events.clone() else {
+                continue;
+            };
+            let already = route
+                .sftp_handles
+                .lock()
+                .map(|handles| handles.contains_key(tab_id))
+                .unwrap_or(true);
+            if already {
+                continue;
+            }
+            let Some(status) = route
+                .statuses
+                .lock()
+                .ok()
+                .and_then(|statuses| statuses.get(tab_id).cloned())
+            else {
+                continue;
+            };
+            if status.state != 1 || status.session_id.is_empty() {
+                continue;
+            }
+            let Some(session) = store.get(&status.session_id).cloned() else {
+                continue;
+            };
+            if !should_start_sftp(&session, true) {
+                continue;
+            }
+            let Ok(jump) = store.resolve_jump_chain(&session) else {
+                continue;
+            };
+            pending.push(PendingSftp {
+                tab_id: tab_id.clone(),
+                events,
+                handles: route.sftp_handles.clone(),
+                window: route.window.clone(),
+                session,
+                jump,
+            });
+        }
+    }
+    for job in pending {
+        let handle = spawn_sftp(core.runtime.handle(), job.session, job.jump, job.events);
+        if let Ok(mut handles) = job.handles.lock() {
+            handles.insert(job.tab_id.clone(), handle);
+        }
+        let Some(win) = job.window.upgrade() else {
+            continue;
+        };
+        let terminals = win.get_terminals();
+        let Some(model) = terminals.as_any().downcast_ref::<VecModel<TerminalState>>() else {
+            continue;
+        };
+        let collapse_default = win.get_collapse_sftp_default();
+        crate::app::panes::update_terminal_row(model, &job.tab_id, |row| {
+            let was_available = row.sftp_available;
+            row.sftp_available = true;
+            if !was_available {
+                row.sftp_collapsed = collapse_default;
+            }
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::should_start_sftp;
@@ -448,16 +574,25 @@ mod tests {
     fn shell_compatibility_keeps_sftp_available() {
         let mut session = Session::new_empty();
         session.kind = SessionKind::Ssh;
-        assert!(should_start_sftp(&session));
+        assert!(should_start_sftp(&session, true));
 
         session.disable_shell_integration = true;
-        assert!(should_start_sftp(&session));
+        assert!(should_start_sftp(&session, true));
     }
 
     #[test]
     fn non_ssh_sessions_never_start_sftp() {
         let mut session = Session::new_empty();
         session.kind = SessionKind::Telnet;
-        assert!(!should_start_sftp(&session));
+        assert!(!should_start_sftp(&session, true));
+    }
+
+    #[test]
+    fn master_switch_blocks_sftp_even_for_ssh() {
+        let mut session = Session::new_empty();
+        session.kind = SessionKind::Ssh;
+        assert!(!should_start_sftp(&session, false));
+        session.disable_shell_integration = true;
+        assert!(!should_start_sftp(&session, false));
     }
 }

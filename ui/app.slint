@@ -683,6 +683,9 @@ export component AppWindow inherits Window {
     // SFTP follows the terminal's cd; opt out in Interface settings.
     in-out property <bool> sftp-follow-cd: true;
     callback set-sftp-follow-cd(bool);             // apply + persist
+    // Master SFTP switch. Default on, including when an old config omits it.
+    in-out property <bool> sftp-enabled: true;
+    callback set-sftp-enabled(bool);
     // Hide the quick-command bar under the terminal; toolbar toggle persists it.
     in-out property <bool> cmd-bar-hidden: false;
     callback set-cmd-bar-hidden(bool);             // apply + persist
@@ -2057,6 +2060,7 @@ export component AppWindow inherits Window {
                         sftp-sort-key: term.sftp-sort-key;
                         sftp-sort-dir: term.sftp-sort-dir;
                         sftp-available: term.sftp-available;
+                        sftp-enabled: root.sftp-enabled;
                         tunnels: term.tunnels;
                         quick-commands: root.quick-commands;
                         quick-sidebar-enabled: root.quick-commands-as-sidebar;
@@ -5357,6 +5361,7 @@ export component AppWindow inherits Window {
                     output-highlight-rule-status <=> root.output-highlight-rule-status;
                     ui-scale: root.ui-scale;
                     sftp-follow-cd <=> root.sftp-follow-cd;
+                    sftp-enabled <=> root.sftp-enabled;
                     collapse-sidebar-default <=> root.collapse-sidebar-default;
                     local-latency-mode <=> root.local-latency-mode;
                     show-local-metric <=> root.show-local-metric;
@@ -5421,6 +5426,7 @@ export component AppWindow inherits Window {
                     set-panel-font(v) => { root.set-panel-font(v); }
                     set-renderer-mode(v) => { root.set-renderer-mode(v); }
                     set-sftp-follow-cd(v) => { root.set-sftp-follow-cd(v); }
+                    set-sftp-enabled(v) => { root.set-sftp-enabled(v); }
                     set-collapse-sidebar-default(v) => { root.set-collapse-sidebar-default(v); }
                     set-local-latency-mode(v) => { root.set-local-latency-mode(v); }
                     set-show-local-metric(v) => { root.set-show-local-metric(v); }

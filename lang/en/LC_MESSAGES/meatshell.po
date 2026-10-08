@@ -708,3 +708,9 @@ msgstr "Zen mode"
 
 msgid "Hide side panels, the quick-command panel, the SFTP panel, and collapsed edge strips so the terminal fills the window."
 msgstr "Hide side panels, the quick-command panel, the SFTP panel, and collapsed edge strips so the terminal fills the window."
+
+msgid "Enable SFTP"
+msgstr "Enable SFTP"
+
+msgid "Off never opens an SFTP connection and hides the SFTP panel."
+msgstr "Off never opens an SFTP connection and hides the SFTP panel."

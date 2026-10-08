@@ -40,6 +40,9 @@ pub struct TabRoute {
     pub sftp_handles: SftpHandles,
     pub sftp_last_cwd: SftpLastCwd,
     pub follow_cd: Arc<std::sync::atomic::AtomicBool>,
+    /// Kept for the life of an SSH tab so the master switch can attach or
+    /// replace the SFTP worker without starting a second event pump.
+    pub sftp_events: Option<tokio::sync::mpsc::UnboundedSender<crate::ssh::SessionEvent>>,
 }
 
 /// Tab id → its current delivery route. Shared with the pump threads.

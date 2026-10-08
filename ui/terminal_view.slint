@@ -303,6 +303,10 @@ export component TerminalView inherits Rectangle {
     in property <bool> sftp-show-owner: true;
     in property <bool> sftp-show-group: true;
     in property <bool> sftp-available: true;
+    in property <bool> sftp-enabled: true;
+    // Focus mode and the master switch both remove the panel. The per-tab
+    // collapsed flag is left alone so it returns with the previous value.
+    property <bool> sftp-suppressed: root.zen-mode || !root.sftp-enabled;
     in property <[TunnelInfo]> tunnels: [];
 
     // Per-session now (#v0.5): the AppWindow stores these in each TerminalState
@@ -638,15 +642,16 @@ export component TerminalView inherits Rectangle {
         // Side-docked SFTP needs enough room for its compact action row and a
         // usable path field. Clamp legacy/saved widths below that floor instead
         // of letting Slint squeeze controls out of alignment.
-        // Focus mode hides the SFTP panel and its collapsed strip. The
-        // per-tab collapsed flag is left alone so it comes back afterwards.
-        property <length> sf-w: root.zen-mode ? 0px
+        // Focus mode and the SFTP master switch both hide the panel and its
+        // collapsed strip. The per-tab collapsed flag is left alone.
+        property <bool> sftp-suppressed: root.zen-mode || !root.sftp-enabled;
+        property <length> sf-w: root.sftp-suppressed ? 0px
             : root.sftp-collapsed ? 36px
             : root.sftp-horizontal ? max(300px, root.sftp-panel-width)
             : root.sftp-panel-width;
-        property <length> sf-h: root.zen-mode ? 0px
+        property <length> sf-h: root.sftp-suppressed ? 0px
             : root.sftp-collapsed ? 36px : root.sftp-panel-height;
-        property <length> sp: root.zen-mode || root.sftp-collapsed ? 0px : 4px;
+        property <length> sp: root.sftp-suppressed || root.sftp-collapsed ? 0px : 4px;
         // The collapsed bar (sf-h) already reserves the bottom strip now.
         property <length> bottom-strip-h: 0px;
 
@@ -2139,7 +2144,7 @@ export component TerminalView inherits Rectangle {
 
         // --- SFTP resize splitter (orientation follows the dock edge) -------
         Rectangle {
-            visible: root.sftp-available && !root.sftp-collapsed && !root.zen-mode;
+            visible: root.sftp-available && !root.sftp-collapsed && !root.sftp-suppressed;
             x: root.sftp-dock == "left"   ? parent.sf-w
              : root.sftp-dock == "right"  ? parent.width - parent.sf-w - 4px
              : 0px;
@@ -2194,7 +2199,7 @@ export component TerminalView inherits Rectangle {
         }
 
         // --- SFTP panel — positioned on the docked edge ---------------------
-        if root.sftp-available && !root.zen-mode : SftpPanel {
+        if root.sftp-available && !root.sftp-suppressed : SftpPanel {
             x: root.sftp-dock == "right"  ? parent.width - parent.sf-w : 0px;
             y: root.sftp-dock == "bottom" ? parent.height - parent.sf-h : 0px;
             width:  root.sftp-horizontal ? parent.sf-w : parent.width;
@@ -2303,7 +2308,7 @@ export component TerminalView inherits Rectangle {
 
         // Collapsed → a ToolStrip icon bar at the docked edge (M5), filling the
         // 36px slot the panel shrank to; click the icon to re-expand.
-        if root.sftp-collapsed && !root.zen-mode : ToolStrip {
+        if root.sftp-collapsed && !root.sftp-suppressed : ToolStrip {
             x: root.sftp-dock == "right"  ? parent.width - parent.sf-w : 0px;
             y: root.sftp-dock == "bottom" ? parent.height - parent.sf-h : 0px;
             width:  root.sftp-horizontal ? parent.sf-w : parent.width;

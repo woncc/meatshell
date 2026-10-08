@@ -705,3 +705,9 @@ msgstr "专注模式"
 
 msgid "Hide side panels, the quick-command panel, the SFTP panel, and collapsed edge strips so the terminal fills the window."
 msgstr "隐藏侧栏、快捷命令面板、SFTP 面板和收起图标，让终端填满窗口内容区。"
+
+msgid "Enable SFTP"
+msgstr "启用 SFTP"
+
+msgid "Off never opens an SFTP connection and hides the SFTP panel."
+msgstr "关闭后不建立 SFTP 连接，也不显示 SFTP 面板。"

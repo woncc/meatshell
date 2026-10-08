@@ -173,6 +173,10 @@ pub struct ConfigFile {
     /// terminal's cd (OSC 7) unless the user opts out in Interface settings.
     #[serde(default)]
     pub sftp_no_follow_cd: bool,
+    /// Master SFTP switch, stored inverted so a missing key stays enabled.
+    /// Off means no SFTP subsystem is opened and the panel stays hidden.
+    #[serde(default)]
+    pub sftp_disabled: bool,
     /// Always prompt for the save location on each download instead of using the
     /// preset download dir. Defaults to false (#87).
     #[serde(default)]

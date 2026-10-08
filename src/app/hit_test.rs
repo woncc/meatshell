@@ -48,7 +48,12 @@ pub(super) fn terminal_wheel_hit(
     } else {
         term_state.sftp_panel_height
     };
-    let sftp_take = sftp_panel_take(win.get_zen_mode(), term_state.sftp_collapsed, expanded);
+    let sftp_take = sftp_panel_take(
+        win.get_sftp_enabled(),
+        win.get_zen_mode(),
+        term_state.sftp_collapsed,
+        expanded,
+    );
     shrink_edge(
         &mut term_x,
         &mut term_y,
@@ -243,7 +248,7 @@ pub(super) fn active_terminal_panel_rects(
 pub(super) fn active_sftp_file_list_rect(win: &AppWindow) -> Option<LogicalRect> {
     let (_active, term, term_state) = active_terminal_panel_rects(win)?;
     // Focus mode hides SFTP on every tab; the stored collapse flag stays put.
-    if win.get_zen_mode() || term_state.sftp_collapsed {
+    if !win.get_sftp_enabled() || win.get_zen_mode() || term_state.sftp_collapsed {
         return None;
     }
 
@@ -292,8 +297,8 @@ pub(super) fn active_sftp_file_list_rect(win: &AppWindow) -> Option<LogicalRect>
 
 /// Thickness the SFTP panel occupies inside a terminal.
 /// Focus mode (`zen`) hides the panel and its collapsed strip, on every tab.
-pub(crate) fn sftp_panel_take(zen: bool, collapsed: bool, panel: f32) -> f32 {
-    if zen {
+pub(crate) fn sftp_panel_take(enabled: bool, zen: bool, collapsed: bool, panel: f32) -> f32 {
+    if !enabled || zen {
         0.0
     } else if collapsed {
         36.0
@@ -317,10 +322,13 @@ mod focus_panel_tests {
         assert!(focus_hides_quick_and_sftp(true));
         assert!(!focus_hides_quick_and_sftp(false));
         // Expanded and collapsed tabs both lose the panel while focus is on.
-        assert_eq!(sftp_panel_take(true, false, 380.0), 0.0);
-        assert_eq!(sftp_panel_take(true, true, 380.0), 0.0);
+        assert_eq!(sftp_panel_take(true, true, false, 380.0), 0.0);
+        assert_eq!(sftp_panel_take(true, true, true, 380.0), 0.0);
         // Turning focus off restores the tab's own state.
-        assert_eq!(sftp_panel_take(false, true, 380.0), 36.0);
-        assert_eq!(sftp_panel_take(false, false, 380.0), 384.0);
+        assert_eq!(sftp_panel_take(true, false, true, 380.0), 36.0);
+        assert_eq!(sftp_panel_take(true, false, false, 380.0), 384.0);
+        // The SFTP master switch hides the panel even when focus mode is off.
+        assert_eq!(sftp_panel_take(false, false, false, 380.0), 0.0);
+        assert_eq!(sftp_panel_take(false, true, false, 380.0), 0.0);
     }
 }

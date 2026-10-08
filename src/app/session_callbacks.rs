@@ -1251,7 +1251,7 @@ pub(super) fn wire_session_callbacks(
             };
             // Compatibility mode also suppresses the SFTP side-channel so
             // bastions that only permit one proxied PTY connection stay alive.
-            let has_sftp = should_start_sftp(&session);
+            let has_sftp = should_start_sftp(&session, store.borrow().sftp_enabled());
 
             // Seed the per-tab status so the sidebar shows "连接中 host" the
             // moment this tab becomes active (the `changed active-tab-id`
