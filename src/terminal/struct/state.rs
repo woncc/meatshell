@@ -11,6 +11,15 @@ pub(crate) enum CtrlKeySide {
     Right,
 }
 
+/// Which Shift key to re-inject when Windows reports a Shift that Slint's
+/// winit backend does not map (`KeyLocation::Standard`, typical of Right Shift).
+#[cfg(any(target_os = "windows", test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ShiftKeySide {
+    Left,
+    Right,
+}
+
 /// Per-terminal state used by normal and alternate-screen rendering.
 pub(crate) struct TermBuffer {
     pub(crate) parser: vt100::Parser,
@@ -44,6 +53,10 @@ pub(crate) struct TermBuffer {
     pub(crate) csi_state: CsiState,
     pub(crate) csi_pending: Vec<u8>,
     pub(crate) raw: VecDeque<u8>,
+    /// CSI 3 J from an alternate-screen app (ncurses `rmcup`) must not wipe
+    /// the primary scrollback. Set while entering, showing, or leaving that
+    /// screen, and consumed by the following erase-saved-lines sequence.
+    pub(crate) suppress_alt_erase_saved: bool,
     /// Plain-text transcript of this tab's output, when session logging is
     /// on for it (#265). Dropping the buffer (tab close) closes the file.
     pub(crate) session_log: Option<crate::terminal::SessionLogger>,

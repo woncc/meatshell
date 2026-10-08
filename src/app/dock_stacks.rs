@@ -27,6 +27,11 @@ pub const DIVIDER: f32 = 4.0;
 /// Clamp bounds for a stacked panel's thickness along its edge's normal
 /// (its width on a left/right edge, height on a top/bottom one).
 pub const MIN_THICK: f32 = 120.0;
+/// Absolute cap for a panel drag, in logical px. The geometry pass may show
+/// less (it keeps 38% of the dock area for the terminal) but never more than
+/// this once the user has dragged the edge. The sparkline ring buffer is
+/// sized to this width; keep it equal to `SPARKLINE_MAX_SIDEBAR_PX`.
+pub const MAX_THICK: f32 = 2600.0;
 /// Max share of the dock-area an edge stack may take. Kept well under half so
 /// the terminal never fully disappears even with opposite edges both maxed.
 const MAX_THICK_FRAC: f32 = 0.38;
@@ -135,7 +140,9 @@ impl DockStacks {
                 t.retain(|s| s.kind != kind);
             }
         }
-        let Some(t) = self.table_mut(edge) else { return };
+        let Some(t) = self.table_mut(edge) else {
+            return;
+        };
         if t.iter().any(|s| s.kind == kind) {
             return;
         }
@@ -168,9 +175,17 @@ impl DockStacks {
             let len = t.len();
             for (i, s) in t.iter_mut().enumerate() {
                 s.ratio = if i <= index {
-                    a * if group_a > 0.0 { s.ratio / group_a } else { 1.0 / (index + 1) as f32 }
+                    a * if group_a > 0.0 {
+                        s.ratio / group_a
+                    } else {
+                        1.0 / (index + 1) as f32
+                    }
                 } else {
-                    b * if group_b > 0.0 { s.ratio / group_b } else { 1.0 / (len - index - 1) as f32 }
+                    b * if group_b > 0.0 {
+                        s.ratio / group_b
+                    } else {
+                        1.0 / (len - index - 1) as f32
+                    }
                 };
                 s.ratio = s.ratio.clamp(MIN_RATIO, 1.0 - MIN_RATIO);
             }
@@ -208,12 +223,17 @@ impl DockStacks {
         self.top.clear();
         self.bottom.clear();
         for e in stacks {
-            let Some(t) = self.table_mut(&e.edge) else { continue };
+            let Some(t) = self.table_mut(&e.edge) else {
+                continue;
+            };
             for s in &e.slots {
                 let Some(kind) = KINDS.iter().copied().find(|k| *k == s.kind) else {
                     continue;
                 };
-                t.push(DockSlotInfo { kind, ratio: s.ratio });
+                t.push(DockSlotInfo {
+                    kind,
+                    ratio: s.ratio,
+                });
             }
             rebalance(t);
         }
@@ -235,8 +255,7 @@ impl DockStacks {
             if let Some(slots) = saved.table(edge) {
                 // Keep the persisted order and ratio for panels still on this
                 // edge and still expanded.
-                let mut kept: Vec<&'static str> =
-                    slots.iter().map(|s| s.kind).collect();
+                let mut kept: Vec<&'static str> = slots.iter().map(|s| s.kind).collect();
                 kept.retain(|k| expanded(k) == Some(edge));
                 order.append(&mut kept);
             }
@@ -285,7 +304,10 @@ impl DockStacks {
                     0.0
                 };
                 for k in fresh {
-                    slots.push(DockSlotInfo { kind: k, ratio: each });
+                    slots.push(DockSlotInfo {
+                        kind: k,
+                        ratio: each,
+                    });
                 }
             }
             if let Some(target) = self.table_mut(edge) {
@@ -372,17 +394,51 @@ impl DockStacks {
                     (s.ratio * axis).max(0.0)
                 };
                 let rect = match edge {
-                    "left" => RectGeom { x: band, y: pos, w: thickness, h: seg },
-                    "right" => RectGeom { x: cw - band - thickness, y: pos, w: thickness, h: seg },
-                    "top" => RectGeom { x: pos, y: band, w: seg, h: thickness },
-                    _ => RectGeom { x: pos, y: ch - band - thickness, w: seg, h: thickness },
+                    "left" => RectGeom {
+                        x: band,
+                        y: pos,
+                        w: thickness,
+                        h: seg,
+                    },
+                    "right" => RectGeom {
+                        x: cw - band - thickness,
+                        y: pos,
+                        w: thickness,
+                        h: seg,
+                    },
+                    "top" => RectGeom {
+                        x: pos,
+                        y: band,
+                        w: seg,
+                        h: thickness,
+                    },
+                    _ => RectGeom {
+                        x: pos,
+                        y: ch - band - thickness,
+                        w: seg,
+                        h: thickness,
+                    },
                 };
-                g.panels.push(PanelGeom { kind: s.kind, edge, rect });
+                g.panels.push(PanelGeom {
+                    kind: s.kind,
+                    edge,
+                    rect,
+                });
                 if i < slots.len() - 1 {
                     let drect = if horizontal {
-                        RectGeom { x: rect.x, y: pos + seg, w: thickness, h: DIVIDER }
+                        RectGeom {
+                            x: rect.x,
+                            y: pos + seg,
+                            w: thickness,
+                            h: DIVIDER,
+                        }
                     } else {
-                        RectGeom { x: pos + seg, y: rect.y, w: DIVIDER, h: thickness }
+                        RectGeom {
+                            x: pos + seg,
+                            y: rect.y,
+                            w: DIVIDER,
+                            h: thickness,
+                        }
                     };
                     g.dividers.push(DividerGeom {
                         edge,
@@ -628,8 +684,14 @@ mod tests {
         let saved = vec![DockEdgeSer {
             edge: "left".into(),
             slots: vec![
-                DockSlotSer { kind: "bogus".into(), ratio: 0.5 },
-                DockSlotSer { kind: "quick".into(), ratio: 0.5 },
+                DockSlotSer {
+                    kind: "bogus".into(),
+                    ratio: 0.5,
+                },
+                DockSlotSer {
+                    kind: "quick".into(),
+                    ratio: 0.5,
+                },
             ],
         }];
         let mut t = DockStacks::default();
@@ -655,13 +717,45 @@ mod tests {
         // Both panels share the left-edge thickness (220) and split the height.
         assert_eq!(g.panels.len(), 2);
         assert_eq!(g.panels[0].kind, "sidebar");
-        assert_eq!(g.panels[0].rect, RectGeom { x: 0.0, y: 0.0, w: 220.0, h: 300.0 });
+        assert_eq!(
+            g.panels[0].rect,
+            RectGeom {
+                x: 0.0,
+                y: 0.0,
+                w: 220.0,
+                h: 300.0
+            }
+        );
         assert_eq!(g.panels[1].kind, "quick");
-        assert_eq!(g.panels[1].rect, RectGeom { x: 0.0, y: 300.0, w: 220.0, h: 300.0 });
+        assert_eq!(
+            g.panels[1].rect,
+            RectGeom {
+                x: 0.0,
+                y: 300.0,
+                w: 220.0,
+                h: 300.0
+            }
+        );
         assert_eq!(g.dividers.len(), 1);
         assert!(g.dividers[0].vertical);
-        assert_eq!(g.dividers[0].rect, RectGeom { x: 0.0, y: 300.0, w: 220.0, h: DIVIDER });
-        assert_eq!(g.central, RectGeom { x: 220.0, y: 0.0, w: 580.0, h: 600.0 });
+        assert_eq!(
+            g.dividers[0].rect,
+            RectGeom {
+                x: 0.0,
+                y: 300.0,
+                w: 220.0,
+                h: DIVIDER
+            }
+        );
+        assert_eq!(
+            g.central,
+            RectGeom {
+                x: 220.0,
+                y: 0.0,
+                w: 580.0,
+                h: 600.0
+            }
+        );
     }
 
     #[test]
@@ -670,9 +764,25 @@ mod tests {
         s.dock_to("right", "welcome");
         let g = s.compute_geom(&extent_220, &no_strip, 800.0, 600.0);
         assert_eq!(g.panels.len(), 1);
-        assert_eq!(g.panels[0].rect, RectGeom { x: 580.0, y: 0.0, w: 220.0, h: 600.0 });
+        assert_eq!(
+            g.panels[0].rect,
+            RectGeom {
+                x: 580.0,
+                y: 0.0,
+                w: 220.0,
+                h: 600.0
+            }
+        );
         assert!(g.dividers.is_empty());
-        assert_eq!(g.central, RectGeom { x: 0.0, y: 0.0, w: 580.0, h: 600.0 });
+        assert_eq!(
+            g.central,
+            RectGeom {
+                x: 0.0,
+                y: 0.0,
+                w: 580.0,
+                h: 600.0
+            }
+        );
     }
 
     #[test]
@@ -682,11 +792,43 @@ mod tests {
         s.dock_to("top", "welcome");
         let g = s.compute_geom(&extent_220, &no_strip, 800.0, 600.0);
         assert_eq!(g.panels.len(), 2);
-        assert_eq!(g.panels[0].rect, RectGeom { x: 0.0, y: 0.0, w: 400.0, h: 220.0 });
-        assert_eq!(g.panels[1].rect, RectGeom { x: 400.0, y: 0.0, w: 400.0, h: 220.0 });
+        assert_eq!(
+            g.panels[0].rect,
+            RectGeom {
+                x: 0.0,
+                y: 0.0,
+                w: 400.0,
+                h: 220.0
+            }
+        );
+        assert_eq!(
+            g.panels[1].rect,
+            RectGeom {
+                x: 400.0,
+                y: 0.0,
+                w: 400.0,
+                h: 220.0
+            }
+        );
         assert!(!g.dividers[0].vertical);
-        assert_eq!(g.dividers[0].rect, RectGeom { x: 400.0, y: 0.0, w: DIVIDER, h: 220.0 });
-        assert_eq!(g.central, RectGeom { x: 0.0, y: 220.0, w: 800.0, h: 380.0 });
+        assert_eq!(
+            g.dividers[0].rect,
+            RectGeom {
+                x: 400.0,
+                y: 0.0,
+                w: DIVIDER,
+                h: 220.0
+            }
+        );
+        assert_eq!(
+            g.central,
+            RectGeom {
+                x: 0.0,
+                y: 220.0,
+                w: 800.0,
+                h: 380.0
+            }
+        );
     }
 
     #[test]
@@ -695,7 +837,15 @@ mod tests {
         let g = s.compute_geom(&extent_220, &no_strip, 800.0, 600.0);
         assert!(g.panels.is_empty());
         assert!(g.dividers.is_empty());
-        assert_eq!(g.central, RectGeom { x: 0.0, y: 0.0, w: 800.0, h: 600.0 });
+        assert_eq!(
+            g.central,
+            RectGeom {
+                x: 0.0,
+                y: 0.0,
+                w: 800.0,
+                h: 600.0
+            }
+        );
     }
 
     #[test]

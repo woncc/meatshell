@@ -69,6 +69,9 @@ msgstr "Open-source libraries used"
 msgid "Open source"
 msgstr "Open source"
 
+msgid "Fork of"
+msgstr "Fork of"
+
 msgid "Edit session"
 msgstr "Edit session"
 
@@ -690,3 +693,24 @@ msgstr "Save session"
 
 msgid "Create session"
 msgstr "Create session"
+
+msgid "Show local speed and latency"
+msgstr "Show local speed and latency"
+
+msgid "Off hides that sidebar block. The filesystem list moves up."
+msgstr "Off hides that sidebar block. The filesystem list moves up."
+
+msgid "Focus"
+msgstr "Focus"
+
+msgid "Zen mode"
+msgstr "Zen mode"
+
+msgid "Hide side panels, the quick-command panel, the SFTP panel, and collapsed edge strips so the terminal fills the window."
+msgstr "Hide side panels, the quick-command panel, the SFTP panel, and collapsed edge strips so the terminal fills the window."
+
+msgid "Enable SFTP"
+msgstr "Enable SFTP"
+
+msgid "Off never opens an SFTP connection and hides the SFTP panel."
+msgstr "Off never opens an SFTP connection and hides the SFTP panel."

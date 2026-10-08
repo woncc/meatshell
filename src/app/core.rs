@@ -40,6 +40,9 @@ pub struct TabRoute {
     pub sftp_handles: SftpHandles,
     pub sftp_last_cwd: SftpLastCwd,
     pub follow_cd: Arc<std::sync::atomic::AtomicBool>,
+    /// Kept for the life of an SSH tab so the master switch can attach or
+    /// replace the SFTP worker without starting a second event pump.
+    pub sftp_events: Option<tokio::sync::mpsc::UnboundedSender<crate::ssh::SessionEvent>>,
 }
 
 /// Tab id → its current delivery route. Shared with the pump threads.
@@ -167,6 +170,9 @@ pub struct AppCore {
     /// Tab id → delivery route, shared with the session pump threads so a
     /// tab can be retargeted at another window while its pumps keep running.
     pub tab_routes: TabRoutes,
+    /// Live copy of the SFTP master switch. Connect tasks read it so a
+    /// switch flipped during handshake cannot still open a subsystem.
+    pub sftp_enabled: Arc<std::sync::atomic::AtomicBool>,
     /// Set once the first window of the process lifetime finishes opening.
     /// The in-app update check runs only for that window — keying it off
     /// `registry.count() == 1` would re-fire after close-then-open.

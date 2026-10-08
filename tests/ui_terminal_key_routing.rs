@@ -53,7 +53,20 @@ fn ctrl_v_pastes_locally_except_on_the_alternate_screen() {
     assert!(paste.contains("event.modifiers.control && event.modifiers.shift"));
     assert!(paste.contains("!root.is-alt-screen"));
     assert!(paste.contains("!event.modifiers.shift"));
+    let shift_insert = source[paste_end..]
+        .split("// ── macOS: swallow")
+        .next()
+        .expect("Shift+Insert branch");
+    assert!(shift_insert.contains("event.modifiers.shift && event.text == Key.Insert"));
+    assert!(shift_insert.contains("root.shift-insert-paste(event.text, event.modifiers.shift)"));
+    assert!(shift_insert.contains("root.extra-paste-shortcuts-enabled"));
     assert!(source[paste_end..].contains("root.send-key(event.text"));
+    let app_source = include_str!("../ui/app.slint");
+    assert!(app_source.contains(
+        "callback shift-insert-paste(string /* key */, bool /* reported shift */) -> bool;"
+    ));
+    assert!(app_source
+        .contains("shift-insert-paste(key, shift) => { root.shift-insert-paste(key, shift) }"));
 }
 
 #[test]

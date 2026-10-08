@@ -21,7 +21,7 @@ pub(super) fn wire_downloads_and_links(
             let active = w.get_active_tab_id().to_string();
             if let Some(st) = statuses.lock().unwrap().get_mut(&active) {
                 st.selected_iface = iface.to_string();
-                st.net_hist = vec![0.0; NET_HISTORY_LEN]; // reset graph for new NIC
+                st.net_hist = RateHist::blank(NET_HISTORY_LEN);
             }
             refresh_sidebar(&w, &statuses, &local, &net);
         });
@@ -78,9 +78,9 @@ pub(super) fn wire_downloads_and_links(
     }
 
     // --- In-app update check (#48) -----------------------------------------
-    // "Download" on the banner opens the latest-release page in the browser.
+    // "Download" on the banner opens this fork's latest-release page.
     window.on_open_update_url(move || {
-        let url = "https://github.com/yituorou/meatshell/releases/latest";
+        let url = "https://github.com/woncc/meatshell/releases/latest";
         #[cfg(windows)]
         let _ = std::process::Command::new("explorer").arg(url).spawn();
         #[cfg(target_os = "macos")]
@@ -88,8 +88,18 @@ pub(super) fn wire_downloads_and_links(
         #[cfg(all(not(windows), not(target_os = "macos")))]
         let _ = std::process::Command::new("xdg-open").arg(url).spawn();
     });
-    // The open-source link in the About dialog opens the project page.
+    // The open-source link in the About dialog opens this fork's project page.
     window.on_open_repo(move || {
+        let url = "https://github.com/woncc/meatshell";
+        #[cfg(windows)]
+        let _ = std::process::Command::new("explorer").arg(url).spawn();
+        #[cfg(target_os = "macos")]
+        let _ = std::process::Command::new("open").arg(url).spawn();
+        #[cfg(all(not(windows), not(target_os = "macos")))]
+        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    });
+    // About credits the original project. This does not drive update checks.
+    window.on_open_upstream(move || {
         let url = "https://github.com/yituorou/meatshell";
         #[cfg(windows)]
         let _ = std::process::Command::new("explorer").arg(url).spawn();

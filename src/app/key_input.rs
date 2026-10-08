@@ -410,6 +410,13 @@ pub(super) fn wire_key_input(
             },
         );
 
+        // Shift+Insert paste, including Right Shift when Slint's modifier bit
+        // is missing (#1). Reported shift covers Left Shift; physical_shift_down
+        // covers a held Right Shift the modifier tracker never saw.
+        window.on_shift_insert_paste(move |key: SharedString, shift: bool| {
+            shift_insert_should_paste(key.as_str(), shift, physical_shift_down())
+        });
+
         let handles = handles.clone();
         let bufs = bufs.clone();
         let sync_input = sync_input.clone();
@@ -459,8 +466,11 @@ pub(super) fn wire_key_input(
                     ctx.sftp_last_cwd.lock().unwrap().remove(tab_id.as_str());
                     if let Some(w) = ctx.weak.upgrade() {
                         set_terminal_row(&w, tab_id.as_str(), |t| {
-                            t.status =
-                                crate::i18n::t("重连中...", "Reconnecting...").into();
+                            write_terminal_status(
+                                t,
+                                w.get_hide_ssh_identity(),
+                                crate::i18n::t("重连中...", "Reconnecting..."),
+                            );
                         });
                     }
                     start_session_in_tab(tab_id.as_str(), session, &ctx);

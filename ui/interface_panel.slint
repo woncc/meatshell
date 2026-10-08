@@ -65,6 +65,7 @@ component SettingRow inherits Rectangle {
     in property <string> label;
     in property <string> desc;
     in property <bool> show-divider: true;
+    in property <bool> enabled: true;
     VerticalLayout {
         HorizontalLayout {
             spacing: 14px;
@@ -74,7 +75,11 @@ component SettingRow inherits Rectangle {
                 horizontal-stretch: 1;
                 alignment: center;
                 spacing: 3px;
-                Text { text: root.label; font-size: 13px * Theme.panel-font; color: Theme.text-primary; }
+                Text {
+                    text: root.label;
+                    font-size: 13px * Theme.panel-font;
+                    color: root.enabled ? Theme.text-primary : Theme.text-muted;
+                }
                 if root.desc != "" : Text { text: root.desc; font-size: 11px * Theme.panel-font;
                        color: Theme.text-muted; wrap: word-wrap; }
             }
@@ -92,10 +97,12 @@ component SettingRow inherits Rectangle {
 // binding-break-on-self-assign gotcha).
 component Switch inherits Rectangle {
     in property <bool> on;
+    in property <bool> enabled: true;
     callback toggled(bool);
     width: 38px;
     height: 22px;
     border-radius: 11px;
+    opacity: root.enabled ? 1 : 0.45;
     background: root.on ? Theme.accent : Theme.bg-active;
     animate background { duration: 120ms; }
     Rectangle {
@@ -108,8 +115,9 @@ component Switch inherits Rectangle {
         animate x { duration: 120ms; easing: ease-out; }
     }
     TouchArea {
-        mouse-cursor: pointer;
-        clicked => { root.toggled(!root.on); }
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? pointer : default;
+        clicked => { if (root.enabled) { root.toggled(!root.on); } }
     }
 }
 
@@ -377,7 +385,16 @@ export component InterfacePanel inherits Rectangle {
     in-out property <string> output-highlight-rule-status;
     in property <float> ui-scale;
     in-out property <bool> sftp-follow-cd;
+    in-out property <bool> sftp-enabled: true;
     in-out property <bool> collapse-sidebar-default;
+    in-out property <bool> local-latency-mode: false;
+    in-out property <bool> show-local-metric: true;
+    in-out property <string> net-up-color-hex: "";
+    in-out property <string> net-down-color-hex: "";
+    in property <color> net-up-color: #34c759;
+    in property <color> net-down-color: #4a90e2;
+    in property <bool> net-up-custom: false;
+    in property <bool> net-down-custom: false;
     in-out property <bool> collapse-sftp-default;
     in-out property <bool> sync-upload-enabled;
     in-out property <bool> webdav-enabled;
@@ -394,6 +411,7 @@ export component InterfacePanel inherits Rectangle {
     in-out property <bool> paste-confirm-enabled: true;
     in-out property <bool> extra-paste-shortcuts-enabled: true;
     in-out property <bool> zen-mode: false;
+    in-out property <bool> hide-ssh-identity: false;
     in-out property <bool> welcome-as-sidebar;
     in-out property <bool> quick-commands-as-sidebar;
     in-out property <bool> update-check-enabled;
@@ -437,7 +455,12 @@ export component InterfacePanel inherits Rectangle {
     callback set-panel-font(int);   // settings-panel font scale, percent
     callback set-renderer-mode(string);
     callback set-sftp-follow-cd(bool);
+    callback set-sftp-enabled(bool);
     callback set-collapse-sidebar-default(bool);
+    callback set-local-latency-mode(bool);
+    callback set-show-local-metric(bool);
+    callback set-net-up-color(string) -> bool;
+    callback set-net-down-color(string) -> bool;
     callback set-collapse-sftp-default(bool);
     callback set-sync-upload-enabled(bool);
     callback save-webdav-settings(bool, string, string, string, string, bool);
@@ -451,6 +474,7 @@ export component InterfacePanel inherits Rectangle {
     callback set-paste-confirm-enabled(bool);
     callback set-extra-paste-shortcuts-enabled(bool);
     callback set-zen-mode(bool);
+    callback set-hide-ssh-identity(bool);
     callback set-welcome-as-sidebar(bool);
     callback set-quick-commands-as-sidebar(bool);
     callback set-update-check-enabled(bool);   // startup new-version check (#184)
@@ -1302,12 +1326,22 @@ export component InterfacePanel inherits Rectangle {
                 alignment: start;
                 SectionHeader { text: "SFTP"; height: 24px; }
                 SettingRow {
+                    label: @tr("Enable SFTP");
+                    desc: @tr("Off never opens an SFTP connection and hides the SFTP panel.");
+                    Switch {
+                        on: root.sftp-enabled;
+                        toggled(v) => { root.sftp-enabled = v; root.set-sftp-enabled(v); }
+                    }
+                }
+                SettingRow {
                     label: root.lang-en ? "SFTP follows terminal cd" : "SFTP 跟随 cd 更新";
                     desc: root.lang-en
                         ? "A cd in the terminal switches the SFTP panel to the same directory."
                         : "终端里执行 cd 时,SFTP 面板自动切到相同目录。";
+                    enabled: root.sftp-enabled;
                     show-divider: false;
                     Switch {
+                        enabled: root.sftp-enabled;
                         on: root.sftp-follow-cd;
                         toggled(v) => { root.sftp-follow-cd = v; root.set-sftp-follow-cd(v); }
                     }
@@ -1408,13 +1442,61 @@ export component InterfacePanel inherits Rectangle {
                     }
                 }
                 SettingRow {
-                    label: root.lang-en ? "Zen mode" : "专注模式";
+                    label: @tr("Show local speed and latency");
+                    desc: @tr("Off hides that sidebar block. The filesystem list moves up.");
+                    Switch {
+                        on: root.show-local-metric;
+                        toggled(v) => { root.show-local-metric = v; root.set-show-local-metric(v); }
+                    }
+                }
+                SettingRow {
+                    label: root.lang-en ? "Local panel shows latency" : "本机面板显示延迟";
                     desc: root.lang-en
-                        ? "Hide side panels and collapsed edge strips so the terminal fills the window."
-                        : "隐藏侧栏、底栏和收起图标，让终端填满窗口内容区。";
+                        ? "Default is realtime speed (this computer's upload and download). On: ICMP round trip to the active SSH or Telnet host, in ms. \"--\" means no remote host or no reply. The panel title switches it too."
+                        : "默认是实时速度（本机上行和下行）。打开后显示当前 SSH 或 Telnet 主机的 ICMP 往返毫秒。\"--\" 表示没有远程主机或没有回应。点击面板标题也能切换。";
+                    Switch {
+                        on: root.local-latency-mode;
+                        toggled(v) => { root.local-latency-mode = v; root.set-local-latency-mode(v); }
+                    }
+                }
+                SettingRow {
+                    label: root.lang-en ? "Upload color" : "上行颜色";
+                    desc: root.lang-en
+                        ? "Default is green, different from download. Clear the field to restore it."
+                        : "默认绿色，和下行不同。清空输入恢复默认。";
+                    CursorColorInput {
+                        value <=> root.net-up-color-hex;
+                        preview-color: root.net-up-custom ? root.net-up-color : #34c759;
+                        apply-color(v) => { root.set-net-up-color(v) }
+                    }
+                }
+                SettingRow {
+                    label: root.lang-en ? "Download color" : "下行颜色";
+                    desc: root.lang-en
+                        ? "Default is blue. Clear the field to restore it."
+                        : "默认蓝色。清空输入恢复默认。";
+                    CursorColorInput {
+                        value <=> root.net-down-color-hex;
+                        preview-color: root.net-down-custom ? root.net-down-color : #4a90e2;
+                        apply-color(v) => { root.set-net-down-color(v) }
+                    }
+                }
+                SettingRow {
+                    label: @tr("Zen mode");
+                    desc: @tr("Hide side panels, the quick-command panel, the SFTP panel, and collapsed edge strips so the terminal fills the window.");
                     Switch {
                         on: root.zen-mode;
                         toggled(v) => { root.zen-mode = v; root.set-zen-mode(v); }
+                    }
+                }
+                SettingRow {
+                    label: root.lang-en ? "Hide SSH user and host" : "隐藏 SSH 用户名和主机";
+                    desc: root.lang-en
+                        ? "Default shows them. On replaces the username, host, and port with **** in the sidebar, terminal status, session list, and tab title. The connection still uses the real address. The toolbar eye does the same."
+                        : "默认显示明文。打开后，侧栏、终端状态、会话列表和标签标题里的用户名、主机和端口会变成 ****。连接仍使用真实地址。工具栏的眼睛按钮同样切换。";
+                    Switch {
+                        on: root.hide-ssh-identity;
+                        toggled(v) => { root.hide-ssh-identity = v; root.set-hide-ssh-identity(v); }
                     }
                 }
                 SettingRow {

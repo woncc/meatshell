@@ -183,17 +183,26 @@ pub(super) fn open_window(
 
     let sessions_model: Rc<VecModel<SessionInfo>> = Rc::new(VecModel::default());
     window.set_sessions(ModelRc::from(sessions_model.clone()));
-    sync_sessions_to_model(&store.borrow(), &sessions_model);
+    sync_sessions_to_model_with_filter(
+        &store.borrow(),
+        &sessions_model,
+        "",
+        window.get_hide_ssh_identity(),
+    );
     window.set_wsl_profiles(wsl_profile_model(&store.borrow()));
     listen_for_config_changes(&ctx, &sessions_model);
     wire_wsl_profiles(&ctx, &sessions_model);
     wire_webdav_download(&ctx, &sessions_model);
 
     let tabs_model: Rc<VecModel<TabInfo>> = Rc::new(VecModel::default());
+    let welcome_title = t("新标签页", "New tab");
     tabs_model.push(TabInfo {
         id: "welcome".into(),
-        title_len: tab_title_len(&t("新标签页", "New tab")),
-        title: t("新标签页", "New tab").into(),
+        title_len: tab_title_len(&welcome_title),
+        title: welcome_title.into(),
+        title_raw: welcome_title.into(),
+        identity_user: "".into(),
+        identity_host: "".into(),
         kind: "welcome".into(),
         connected: false,
     });
@@ -351,7 +360,7 @@ pub(super) fn open_window(
                 let kind = p.kind.to_string();
                 let edge = p.edge.to_string();
                 let horizontal_edge = matches!(edge.as_str(), "left" | "right");
-                let thickness = pos.clamp(MIN_THICK, 2600.0);
+                let thickness = pos.clamp(MIN_THICK, MAX_THICK);
                 if let Some(w) = weak3.upgrade() {
                     match (kind.as_str(), horizontal_edge) {
                         ("sidebar", true) => w.set_sidebar_width(thickness),
@@ -473,8 +482,8 @@ pub(super) fn open_window(
     // Per-tab connection status + remote resources, the latest local sample,
     // and the local machine's network history (bottom sparkline).
     let tab_statuses: TabStatuses = Arc::new(Mutex::new(HashMap::new()));
-    let local_snap: LocalSnap = Arc::new(Mutex::new(SystemSnapshot::default()));
-    let local_net_hist: NetHist = Arc::new(Mutex::new(vec![0.0; NET_HISTORY_LEN]));
+    let local_snap: LocalSnap = Arc::new(LocalMachine::new());
+    let local_net_hist: NetHist = Arc::new(Mutex::new(RateHist::blank(NET_HISTORY_LEN)));
 
     // Per-tab display-name overrides set via "Rename session" (tab context
     // menu). Display only — the saved session keeps its own name.
@@ -518,6 +527,19 @@ pub(super) fn open_window(
 
     wire_editor_window_chrome(&ctx);
     {
+        let proc_weak = proc_win.as_weak();
+        let main_weak = window.as_weak();
+        let statuses = tab_statuses.clone();
+        proc_win.on_apply_sort(move || {
+            let (Some(process), Some(main)) = (proc_weak.upgrade(), main_weak.upgrade()) else {
+                return;
+            };
+            let col = process.get_sort_col().clamp(0, 5);
+            process.set_sort_col(col);
+            main.set_proc_sort_col(col);
+            main.set_proc_sort_desc(process.get_sort_desc());
+            refresh_process_model(&main, &statuses);
+        });
         let proc_weak = proc_win.as_weak();
         let handles = handles.clone();
         let statuses = tab_statuses.clone();
@@ -622,6 +644,7 @@ pub(super) fn open_window(
         local_snap.clone(),
         local_net_hist.clone(),
         sftp_follow_cd.clone(),
+        core.sftp_enabled.clone(),
         core.tab_routes.clone(),
         tab_titles.clone(),
         editor_win.clone(),
@@ -634,6 +657,38 @@ pub(super) fn open_window(
         &local_snap,
         &local_net_hist,
     );
+
+    // Eye toggle: persist, then redraw labels. The connection itself is untouched.
+    {
+        let weak = window.as_weak();
+        let store = store.clone();
+        let registry = registry.clone();
+        let proc_win = proc_win.clone();
+        let sys_win = sys_win.clone();
+        window.on_set_hide_ssh_identity(move |hide| {
+            {
+                let mut saved = store.borrow_mut();
+                saved.set_hide_ssh_identity(hide);
+                let _ = saved.save();
+            }
+            registry.broadcast_config_changed();
+            let Some(w) = weak.upgrade() else {
+                return;
+            };
+            if w.get_process_window_open() {
+                proc_win.set_host(w.get_connection_state());
+            }
+            if w.get_system_info_window_open() {
+                sys_win.set_host(w.get_conn_host());
+                sys_win.set_connection_state(w.get_connection_state());
+            }
+            if w.get_dialog_open() {
+                let id = w.get_dialog_id().to_string();
+                let (labels, _ids) = jump_candidates(&store.borrow(), &id, hide);
+                w.set_jump_choices(labels);
+            }
+        });
+    }
 
     wire_auth_prompts(&ctx);
 
@@ -652,7 +707,7 @@ pub(super) fn open_window(
         let weak = window.as_weak();
         std::thread::spawn(move || {
             let body =
-                match ureq::get("https://api.github.com/repos/yituorou/meatshell/releases/latest")
+                match ureq::get("https://api.github.com/repos/woncc/meatshell/releases/latest")
                     .set("User-Agent", "meatshell-update-check")
                     .timeout(std::time::Duration::from_secs(8))
                     .call()
@@ -759,6 +814,7 @@ pub(super) fn open_window(
             local_net_hist: local_net_hist.clone(),
             last_term_size: last_term_size.clone(),
             sftp_follow_cd: sftp_follow_cd.clone(),
+            sftp_enabled: core.sftp_enabled.clone(),
             store: store.clone(),
             tab_routes: core.tab_routes.clone(),
         },
@@ -813,10 +869,14 @@ pub(super) fn open_window(
             };
             // Append the raw local throughput to the bottom-graph ring buffer
             // (normalisation happens at display time so the graph auto-scales).
-            push_ring(&mut tick_net.lock().unwrap(), snap.net_bytes_per_sec as f32);
+            push_rate(
+                &mut tick_net.lock().unwrap(),
+                snap.net_rx_per_sec as f32,
+                snap.net_tx_per_sec as f32,
+            );
             // Stash the local sample; the sidebar shows it on the welcome tab
             // and in the bottom network graph.
-            *tick_local.lock().unwrap() = snap.clone();
+            *tick_local.snap.lock().unwrap() = snap.clone();
 
             // Everything (status, CPU/mem/swap, both graphs) follows the
             // active tab; refresh_sidebar reads the stores we just updated.

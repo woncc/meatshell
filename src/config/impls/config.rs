@@ -207,9 +207,7 @@ fn restore_user_backup_if_needed(primary_dir: &Path, backup_dir: &Path) {
     }
     let primary_sessions = primary_dir.join("sessions.json");
     let backup_sessions = backup_dir.join("sessions.json");
-    if primary_sessions.exists()
-        || !sessions_file_has_connections(&backup_sessions)
-    {
+    if primary_sessions.exists() || !sessions_file_has_connections(&backup_sessions) {
         return;
     }
     let _ = fs::create_dir_all(primary_dir);
@@ -480,8 +478,12 @@ impl ConfigStore {
         }
 
         if fs::read_to_string(config_dir.join("sessions.json"))
-            .map(|raw| raw.contains(Self::ENC_PREFIX)).unwrap_or(false) {
-            anyhow::bail!("secret.key is missing for encrypted configuration; restore the matching key");
+            .map(|raw| raw.contains(Self::ENC_PREFIX))
+            .unwrap_or(false)
+        {
+            anyhow::bail!(
+                "secret.key is missing for encrypted configuration; restore the matching key"
+            );
         }
         let mut key = [0u8; 32];
         OsRng.fill_bytes(&mut key);
@@ -514,7 +516,9 @@ impl ConfigStore {
         let load_lock = lock_config(&path)?;
         // An explicitly selected profile must not import or overwrite a different
         // portable installation's shared legacy backup (including test profiles).
-        let backup_dir = if PINNED_DATA_DIR.get().is_some() { None } else {
+        let backup_dir = if PINNED_DATA_DIR.get().is_some() {
+            None
+        } else {
             legacy_data_dir().filter(|dir| dir != &config_dir)
         };
         if let Some(ref backup) = backup_dir {
@@ -553,7 +557,8 @@ impl ConfigStore {
                     cfg
                 }
                 Err(err) => {
-                    return Err(err).context("configuration is invalid; original sessions.json preserved");
+                    return Err(err)
+                        .context("configuration is invalid; original sessions.json preserved");
                 }
             }
         } else {
@@ -873,6 +878,16 @@ impl ConfigStore {
         self.cache.zen_mode = enabled;
     }
 
+    /// Eye toggle: hide SSH/Telnet/RDP usernames and hosts in the UI.
+    /// Default is visible so existing windows look the same.
+    pub fn hide_ssh_identity(&self) -> bool {
+        self.cache.hide_ssh_identity
+    }
+
+    pub fn set_hide_ssh_identity(&mut self, hide: bool) {
+        self.cache.hide_ssh_identity = hide;
+    }
+
     /// Force regular terminal text to render with a bold face (#262).
     pub fn terminal_bold(&self) -> bool {
         self.cache.terminal_bold
@@ -1029,6 +1044,15 @@ impl ConfigStore {
 
     pub fn set_sftp_follow_cd(&mut self, follow: bool) {
         self.cache.sftp_no_follow_cd = !follow;
+    }
+
+    /// Global SFTP master switch. Missing keys and `Default` stay on.
+    pub fn sftp_enabled(&self) -> bool {
+        !self.cache.sftp_disabled
+    }
+
+    pub fn set_sftp_enabled(&mut self, enabled: bool) {
+        self.cache.sftp_disabled = !enabled;
     }
 
     /// Whether the quick-command bar under the terminal is hidden.
@@ -1244,6 +1268,60 @@ impl ConfigStore {
 
     pub fn set_sidebar_width(&mut self, v: f32) {
         self.cache.sidebar_width = v;
+    }
+
+    /// Local resource panel under the remote graph.
+    ///
+    /// Default is realtime speed: this computer's upload and download, in bytes
+    /// per second. Latency mode is opt-in and shows ICMP round-trip milliseconds
+    /// to the active SSH or Telnet host. Missing or unknown values stay on speed.
+    pub fn local_panel_latency(&self) -> bool {
+        self.cache
+            .local_panel_metric
+            .eq_ignore_ascii_case("latency")
+    }
+
+    pub fn set_local_panel_latency(&mut self, latency: bool) {
+        self.cache.local_panel_metric = if latency { "latency" } else { "speed" }.into();
+    }
+
+    /// Sidebar local speed/latency block. On unless the user hid it.
+    /// A config written before the key existed stays on.
+    pub fn show_local_metric(&self) -> bool {
+        !self.cache.hide_local_metric
+    }
+
+    pub fn set_show_local_metric(&mut self, show: bool) {
+        self.cache.hide_local_metric = !show;
+    }
+
+    /// Upload color override. Empty means the theme green (distinct from download).
+    pub fn net_up_color(&self) -> String {
+        normalize_hex_color(&self.cache.net_up_color).unwrap_or_default()
+    }
+
+    /// Download color override. Empty means the theme blue.
+    pub fn net_down_color(&self) -> String {
+        normalize_hex_color(&self.cache.net_down_color).unwrap_or_default()
+    }
+
+    /// Store a rate-graph color. An empty string clears the override.
+    /// Returns false when the text is not a 6-digit hex color.
+    pub fn set_net_rate_color(&mut self, upload: bool, color: &str) -> bool {
+        let stored = if color.trim().is_empty() {
+            String::new()
+        } else {
+            let Some(normalized) = normalize_hex_color(color) else {
+                return false;
+            };
+            normalized
+        };
+        if upload {
+            self.cache.net_up_color = stored;
+        } else {
+            self.cache.net_down_color = stored;
+        }
+        true
     }
 
     /// Resource / SFTP panel docking geometry, persisted across restarts (#dock).
@@ -1705,9 +1783,7 @@ impl ConfigStore {
         // Build a disk copy where every non-empty password is encrypted.
         let mut disk = self.cache.clone();
         for session in &mut disk.sessions {
-            if !session.password.is_empty()
-                && !session.password.is_local_ciphertext()
-            {
+            if !session.password.is_empty() && !session.password.is_local_ciphertext() {
                 let enc = Self::encrypt(&self.key, session.password.as_str())?;
                 session.password = Secret::new(enc);
             }
@@ -1718,17 +1794,13 @@ impl ConfigStore {
                 session.private_key_inline = Secret::new(enc);
             }
             for trigger in &mut session.triggers {
-                if !trigger.response.is_empty()
-                    && !trigger.response.is_local_ciphertext()
-                {
+                if !trigger.response.is_empty() && !trigger.response.is_local_ciphertext() {
                     let enc = Self::encrypt(&self.key, trigger.response.as_str())?;
                     trigger.response = Secret::new(enc);
                 }
             }
         }
-        if !disk.webdav_password.is_empty()
-            && !disk.webdav_password.is_local_ciphertext()
-        {
+        if !disk.webdav_password.is_empty() && !disk.webdav_password.is_local_ciphertext() {
             let enc = Self::encrypt(&self.key, disk.webdav_password.as_str())?;
             disk.webdav_password = Secret::new(enc);
         }
@@ -2280,7 +2352,9 @@ mod tests {
         let store = ConfigStore {
             path: primary.join("sessions.json"),
             backup_dir: Some(backup.clone()),
-            disk_snapshot: std::cell::RefCell::new(read_config_snapshot(&primary.join("sessions.json")).unwrap()),
+            disk_snapshot: std::cell::RefCell::new(
+                read_config_snapshot(&primary.join("sessions.json")).unwrap(),
+            ),
             cache: ConfigFile {
                 sessions: vec![sample_session("new")],
                 ..ConfigFile::default()
@@ -2297,6 +2371,87 @@ mod tests {
         assert_eq!(std::fs::read(backup.join("secret.key")).unwrap(), [7u8; 32]);
 
         let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn local_panel_metric_defaults_to_speed_and_switches_to_latency() {
+        let missing: ConfigFile = serde_json::from_str("{}").unwrap();
+        assert_eq!(missing.local_panel_metric, "speed");
+        let mut store = temp_store();
+        // `Default` leaves the string empty; empty is still the speed display.
+        assert!(!store.local_panel_latency());
+        store.cache = missing;
+        assert!(!store.local_panel_latency());
+        store.set_local_panel_latency(true);
+        assert!(store.local_panel_latency());
+        assert_eq!(store.cache.local_panel_metric, "latency");
+        store.set_local_panel_latency(false);
+        assert!(!store.local_panel_latency());
+        assert_eq!(store.cache.local_panel_metric, "speed");
+        store.cache.local_panel_metric = "nope".into();
+        assert!(!store.local_panel_latency());
+    }
+
+    #[test]
+    fn show_local_metric_defaults_on_and_round_trips() {
+        let missing: ConfigFile = serde_json::from_str("{}").unwrap();
+        assert!(!missing.hide_local_metric);
+        let mut store = temp_store();
+        assert!(store.show_local_metric());
+        store.cache = missing;
+        assert!(store.show_local_metric());
+        store.set_show_local_metric(false);
+        assert!(!store.show_local_metric());
+        let raw = serde_json::to_string(&store.cache).unwrap();
+        let hidden: ConfigFile = serde_json::from_str(&raw).unwrap();
+        assert!(hidden.hide_local_metric);
+        store.cache = hidden;
+        assert!(!store.show_local_metric());
+        store.set_show_local_metric(true);
+        let raw = serde_json::to_string(&store.cache).unwrap();
+        let shown: ConfigFile = serde_json::from_str(&raw).unwrap();
+        assert!(!shown.hide_local_metric);
+        store.cache = shown;
+        assert!(store.show_local_metric());
+    }
+
+    #[test]
+    fn sftp_master_switch_defaults_on_and_keeps_follow_cd() {
+        let missing: ConfigFile = serde_json::from_str("{}").unwrap();
+        assert!(!missing.sftp_disabled);
+        let mut store = temp_store();
+        assert!(store.sftp_enabled());
+        store.set_sftp_follow_cd(false);
+        store.set_sftp_enabled(false);
+        assert!(!store.sftp_enabled());
+        assert!(!store.sftp_follow_cd());
+        let raw = serde_json::to_string(&store.cache).unwrap();
+        let loaded: ConfigFile = serde_json::from_str(&raw).unwrap();
+        assert!(loaded.sftp_disabled);
+        assert!(loaded.sftp_no_follow_cd);
+        store.cache = loaded;
+        store.set_sftp_enabled(true);
+        assert!(store.sftp_enabled());
+        assert!(!store.sftp_follow_cd());
+    }
+
+    #[test]
+    fn rate_colors_default_blank_and_round_trip() {
+        let missing: ConfigFile = serde_json::from_str("{}").unwrap();
+        assert!(missing.net_up_color.is_empty());
+        assert!(missing.net_down_color.is_empty());
+        let mut store = temp_store();
+        assert!(store.net_up_color().is_empty());
+        assert!(store.net_down_color().is_empty());
+        assert!(store.set_net_rate_color(true, "#34c759"));
+        assert!(store.set_net_rate_color(false, "4a90e2"));
+        assert_eq!(store.net_up_color(), "#34C759");
+        assert_eq!(store.net_down_color(), "#4A90E2");
+        assert_ne!(store.net_up_color(), store.net_down_color());
+        assert!(!store.set_net_rate_color(true, "nope"));
+        assert_eq!(store.net_up_color(), "#34C759");
+        assert!(store.set_net_rate_color(true, ""));
+        assert!(store.net_up_color().is_empty());
     }
 
     #[test]
@@ -2490,6 +2645,7 @@ mod tests {
         assert!(store.paste_confirm_enabled());
         assert!(store.extra_paste_shortcuts_enabled());
         assert!(!store.zen_mode());
+        assert!(!store.hide_ssh_identity());
         assert_eq!(store.terminal_line_spacing(), 1.0);
 
         store.set_terminal_line_spacing(0.1);
@@ -2500,9 +2656,11 @@ mod tests {
         store.set_paste_confirm_enabled(false);
         store.set_extra_paste_shortcuts_enabled(false);
         store.set_zen_mode(true);
+        store.set_hide_ssh_identity(true);
         assert!(!store.paste_confirm_enabled());
         assert!(!store.extra_paste_shortcuts_enabled());
         assert!(store.zen_mode());
+        assert!(store.hide_ssh_identity());
     }
 
     #[test]
@@ -2555,7 +2713,6 @@ mod log_path_tests {
     }
 }
 
-
 /// Explicit profile selection must happen before logging resolves its paths.
 /// CLI overrides the environment, then a managed installation's sidecar.
 pub fn configure_profile(args: &mut Vec<String>) -> Result<()> {
@@ -2572,7 +2729,10 @@ pub fn configure_profile(args: &mut Vec<String>) -> Result<()> {
     }
     if selected.is_none() {
         let exe = std::env::current_exe()?;
-        let marker = exe.parent().context("executable has no parent")?.join("data-dir.txt");
+        let marker = exe
+            .parent()
+            .context("executable has no parent")?
+            .join("data-dir.txt");
         match fs::read_to_string(&marker) {
             Ok(path) => selected = Some(PathBuf::from(path.trim())),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
@@ -2584,8 +2744,12 @@ pub fn configure_profile(args: &mut Vec<String>) -> Result<()> {
             anyhow::bail!("profile directory must be absolute");
         }
         fs::create_dir_all(&path).context("cannot create selected profile directory")?;
-        let path = path.canonicalize().context("cannot resolve selected profile")?;
-        PINNED_DATA_DIR.set(path).map_err(|_| anyhow::anyhow!("profile already selected"))?;
+        let path = path
+            .canonicalize()
+            .context("cannot resolve selected profile")?;
+        PINNED_DATA_DIR
+            .set(path)
+            .map_err(|_| anyhow::anyhow!("profile already selected"))?;
     }
     Ok(())
 }
@@ -2593,7 +2757,10 @@ pub fn configure_profile(args: &mut Vec<String>) -> Result<()> {
 /// The OS releases this lock even after a crash. Keep the file on disk so
 /// concurrent processes always lock the same inode/file object.
 fn lock_config(path: &Path) -> Result<fs::File> {
-    let file = fs::OpenOptions::new().read(true).write(true).create(true)
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
         .open(path.with_extension("json.lock"))?;
     fs2::FileExt::lock_exclusive(&file).context("cannot lock configuration")?;
     Ok(file)
@@ -2616,21 +2783,29 @@ mod profile_safety_tests {
         let dir = std::env::temp_dir().join(format!("ms-stale-{}", Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         let mut current = ConfigStore {
-            path: dir.join("sessions.json"), backup_dir: None,
-            cache: ConfigFile::default(), key: [1; 32],
+            path: dir.join("sessions.json"),
+            backup_dir: None,
+            cache: ConfigFile::default(),
+            key: [1; 32],
             disk_snapshot: std::cell::RefCell::new(None),
         };
         current.cache.sessions.push(Session::new_empty());
         current.save().unwrap();
         let stale = ConfigStore {
-            path: current.path.clone(), backup_dir: None,
-            cache: current.cache.clone(), key: current.key,
+            path: current.path.clone(),
+            backup_dir: None,
+            cache: current.cache.clone(),
+            key: current.key,
             disk_snapshot: std::cell::RefCell::new(current.disk_snapshot.borrow().clone()),
         };
         current.cache.sessions.push(Session::new_empty());
         current.save().unwrap();
         let newest = fs::read_to_string(&current.path).unwrap();
-        assert!(stale.save().unwrap_err().to_string().contains("another process"));
+        assert!(stale
+            .save()
+            .unwrap_err()
+            .to_string()
+            .contains("another process"));
         assert_eq!(fs::read_to_string(&current.path).unwrap(), newest);
         current.save().unwrap();
         let _ = fs::remove_dir_all(dir);
@@ -2640,7 +2815,11 @@ mod profile_safety_tests {
     fn missing_or_invalid_key_is_never_replaced_for_encrypted_data() {
         let dir = std::env::temp_dir().join(format!("ms-key-{}", Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("sessions.json"), r#"{"password":"enc:v1:fixture"}"#).unwrap();
+        fs::write(
+            dir.join("sessions.json"),
+            r#"{"password":"enc:v1:fixture"}"#,
+        )
+        .unwrap();
         assert!(ConfigStore::load_or_create_key(&dir).is_err());
         assert!(!dir.join("secret.key").exists());
         fs::write(dir.join("secret.key"), b"broken").unwrap();
@@ -2654,8 +2833,15 @@ mod profile_safety_tests {
         let dir = std::env::temp_dir().join(format!("ms-restore-{}", Uuid::new_v4()));
         let backup = dir.join("backup");
         fs::create_dir_all(&backup).unwrap();
-        let cfg = ConfigFile { sessions: vec![Session::new_empty()], ..ConfigFile::default() };
-        fs::write(backup.join("sessions.json"), serde_json::to_string(&cfg).unwrap()).unwrap();
+        let cfg = ConfigFile {
+            sessions: vec![Session::new_empty()],
+            ..ConfigFile::default()
+        };
+        fs::write(
+            backup.join("sessions.json"),
+            serde_json::to_string(&cfg).unwrap(),
+        )
+        .unwrap();
         for raw in [r#"{"sessions":[]}"#, "{invalid"] {
             fs::write(dir.join("sessions.json"), raw).unwrap();
             restore_user_backup_if_needed(&dir, &backup);

@@ -47,7 +47,12 @@ pub(crate) use json_output::format_json_output;
 #[cfg(any(target_os = "windows", test))]
 pub(crate) use input::windows_process_ctrl_release;
 #[cfg(any(target_os = "windows", test))]
+pub(crate) use input::windows_unmapped_shift_side;
+pub(crate) use input::{physical_shift_down, shift_insert_should_paste};
+#[cfg(any(target_os = "windows", test))]
 pub(crate) use state::CtrlKeySide;
+#[cfg(any(target_os = "windows", test))]
+pub(crate) use state::ShiftKeySide;
 pub(crate) use output_highlight::compile_output_rules;
 pub(crate) use presentation::{highlight_plain_output, render_term_span};
 #[cfg(test)]

@@ -428,6 +428,7 @@ pub(super) fn move_tab_between_windows(
     if let Ok(routes) = core.tab_routes.lock() {
         if let Some(route) = routes.get(tab_id) {
             if let Ok(mut r) = route.lock() {
+                let sftp_events = r.sftp_events.clone();
                 *r = TabRoute {
                     window: dst.weak.clone(),
                     editor: dst.editor_win.as_weak(),
@@ -440,6 +441,7 @@ pub(super) fn move_tab_between_windows(
                     sftp_handles: dst.sftp_handles.clone(),
                     sftp_last_cwd: dst.sftp_last_cwd.clone(),
                     follow_cd: dst.follow_cd.clone(),
+                    sftp_events,
                 };
             }
         }

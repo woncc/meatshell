@@ -9,12 +9,12 @@ mod auth_dialogs;
 mod aux_windows;
 pub(crate) mod core;
 mod dock_stacks;
+#[path = "app/editor_syntax.rs"]
+mod editor_syntax;
 mod file_drop;
 mod fonts;
 mod helpers;
 mod hit_test;
-#[path = "app/editor_syntax.rs"]
-mod editor_syntax;
 #[cfg(windows)]
 mod jump_list;
 mod key_input;
@@ -23,11 +23,12 @@ mod misc_callbacks;
 mod open_window;
 mod panes;
 mod port_forward;
+mod privacy;
 mod quick_commands;
 mod resource_ui;
 mod session_callbacks;
-mod session_event;
 mod session_editor;
+mod session_event;
 mod session_models;
 mod session_runtime;
 mod session_trigger;
@@ -58,6 +59,7 @@ use self::misc_callbacks::*;
 use self::open_window::*;
 use self::panes::*;
 use self::port_forward::*;
+use self::privacy::*;
 use self::quick_commands::*;
 use self::resource_ui::*;
 use self::session_callbacks::*;
@@ -99,9 +101,13 @@ use crate::config::{
 };
 use crate::i18n::t;
 use crate::layout::{LogicalRect, TerminalWheelHit};
-use crate::resource::system::{format_bytes_per_sec, format_mem};
+use crate::resource::latency::local_metric_view;
+use crate::resource::system::{
+    format_axis_rate, format_bytes_per_sec, format_load_average, format_mem,
+};
 use crate::resource::{
-    LocalGpuInfo, LocalHardwareInfo, LocalSnap, NetHist, TabStatus, TabStatuses,
+    LocalGpuInfo, LocalHardwareInfo, LocalMachine, LocalSnap, NetHist, RateHist, TabStatus,
+    TabStatuses,
 };
 use crate::resource::{SystemSampler, SystemSnapshot};
 use crate::session::{ConnectCtx, PendingCred, PendingHostKey, PendingMfa};
@@ -115,10 +121,11 @@ use crate::terminal::c0_letter_key_down;
 use crate::terminal::{
     bare_ctrl_marker_workaround_enabled, cell_prefix, clear_pending_paste, compile_output_rules,
     encode_command_bar_input, encode_mouse_event, encode_pasted_text, is_back_tab,
-    is_terminal_interrupt, key_to_pty_bytes, paste_requires_large_review,
-    should_drop_bare_ctrl_marker, store_pending_paste, take_pending_paste,
-    terminal_uses_bracketed_paste, CsiState, OutputHighlightPreset, PendingPaste, RenderGates,
-    TabRenderGate, TermBuffer, TermBufferHandle, TermBuffers, BACK_TAB_BYTES,
+    is_terminal_interrupt, key_to_pty_bytes, paste_requires_large_review, physical_shift_down,
+    shift_insert_should_paste, should_drop_bare_ctrl_marker, store_pending_paste,
+    take_pending_paste, terminal_uses_bracketed_paste, CsiState, OutputHighlightPreset,
+    PendingPaste, RenderGates, TabRenderGate, TermBuffer, TermBufferHandle, TermBuffers,
+    BACK_TAB_BYTES,
 };
 #[cfg(test)]
 use crate::terminal::{
@@ -126,7 +133,9 @@ use crate::terminal::{
     text_cell_width, vt_span_colors, CompiledOutputRule, HistSpan, Line,
 };
 #[cfg(any(target_os = "windows", test))]
-use crate::terminal::{windows_process_ctrl_release, CtrlKeySide};
+use crate::terminal::{
+    windows_process_ctrl_release, windows_unmapped_shift_side, CtrlKeySide, ShiftKeySide,
+};
 use crate::ui::*;
 use crate::webdav::WebDavAcceptAnyCertVerifier;
 
@@ -180,8 +189,12 @@ fn teardown_window(
     }
 }
 
-/// Number of samples kept for the sparkline.
-const NET_HISTORY_LEN: usize = 60;
+/// Samples kept for the sidebar rate graph.
+///
+/// Bars stay 3px. The buffer matches the widest side panel the dock drag will
+/// store, so a max-width sparkline fills end to end and a narrower one still
+/// has those samples to reveal. See `net_bars_for_graph_width`.
+const NET_HISTORY_LEN: usize = crate::resource::system::SPARKLINE_HISTORY_LEN;
 
 // UI-thread handle to the process core, published by `run()` before the
 // event loop starts. Cross-thread callers (the single-instance IPC
@@ -250,12 +263,16 @@ pub fn run(_intent: crate::app::launch::LaunchIntent) -> Result<()> {
     // commands into history (#113).
     HISTORY_STORE.with(|s| *s.borrow_mut() = Some(store.clone()));
 
+    let sftp_enabled = Arc::new(std::sync::atomic::AtomicBool::new(
+        store.borrow().sftp_enabled(),
+    ));
     let core = Rc::new(AppCore {
         runtime,
         store,
         registry: Rc::new(WindowRegistry::default()),
         window_states: Rc::new(RefCell::new(HashMap::new())),
         tab_routes: Arc::new(Mutex::new(HashMap::new())),
+        sftp_enabled,
         first_window_done: Cell::new(false),
     });
 

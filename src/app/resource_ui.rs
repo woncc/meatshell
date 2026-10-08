@@ -8,12 +8,94 @@ pub(super) fn push_ring(buf: &mut Vec<f32>, val: f32) {
     buf.push(val);
 }
 
-/// Auto-scale a raw bytes/sec history to 0..1 against its own window peak so the
-/// sparkline always uses the full height (like FinalShell's relative graph).
-pub(super) fn normalized_model(buf: &[f32]) -> ModelRc<f32> {
+pub(super) fn push_rate(hist: &mut RateHist, rx: f32, tx: f32) {
+    push_ring(&mut hist.rx, rx);
+    push_ring(&mut hist.tx, tx);
+}
+
+/// How many fixed-pitch bars fit in a sparkline of `graph_width_px`.
+/// Pitch is 3px, matching `Sparkline.bar-pitch` in `ui/widgets.slint`.
+pub(super) fn net_bars_for_graph_width(graph_width_px: f32) -> usize {
+    crate::resource::system::sparkline_bars_for_width(graph_width_px)
+}
+
+/// Newest `bars` samples. The sparkline draws only this suffix at a fixed
+/// pitch, so a spike older than the current sidebar width is not visible.
+pub(super) fn visible_tail(buf: &[f32], bars: usize) -> &[f32] {
+    let n = bars.max(1);
+    if buf.len() <= n {
+        buf
+    } else {
+        &buf[buf.len() - n..]
+    }
+}
+
+/// Auto-scale a raw history to 0..1 against its own peak so the sparkline
+/// uses the full height (like FinalShell's relative graph).
+pub(super) fn normalized_values(buf: &[f32]) -> Vec<f32> {
     let max = buf.iter().cloned().fold(1.0_f32, f32::max);
-    let scaled: Vec<f32> = buf.iter().map(|v| (v / max).clamp(0.0, 1.0)).collect();
-    ModelRc::from(Rc::new(VecModel::from(scaled)))
+    buf.iter().map(|v| (v / max).clamp(0.0, 1.0)).collect()
+}
+
+pub(super) fn normalized_model(buf: &[f32]) -> ModelRc<f32> {
+    ModelRc::from(Rc::new(VecModel::from(normalized_values(buf))))
+}
+
+/// Latency bars for the samples the current plot width can draw.
+pub(super) fn normalized_visible(buf: &[f32], bars: usize) -> ModelRc<f32> {
+    normalized_model(visible_tail(buf, bars))
+}
+
+/// Download and upload scaled against one shared peak, plus the Y-axis labels
+/// for that peak. Callers pass the visible window, not the whole ring: a
+/// spike that has scrolled off the left must not set the axis. Idle history
+/// labels `0` rather than a fake throughput.
+pub(super) struct ScaledRates {
+    pub(super) rx: Vec<f32>,
+    pub(super) tx: Vec<f32>,
+    pub(super) axis_top: String,
+    pub(super) axis_mid: String,
+}
+
+pub(super) fn scale_rate_pair(rx: &[f32], tx: &[f32]) -> ScaledRates {
+    let peak = rx
+        .iter()
+        .chain(tx.iter())
+        .copied()
+        .filter(|v| v.is_finite())
+        .fold(0.0_f32, f32::max)
+        .max(0.0);
+    let denom = peak.max(1.0);
+    let scale = |v: f32| {
+        if v.is_finite() {
+            (v / denom).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    };
+    let (axis_top, axis_mid) = if peak <= 0.0 {
+        ("0".to_string(), "0".to_string())
+    } else {
+        (
+            format_axis_rate(peak.round() as u64),
+            format_axis_rate((peak / 2.0).round() as u64),
+        )
+    };
+    ScaledRates {
+        rx: rx.iter().copied().map(scale).collect(),
+        tx: tx.iter().copied().map(scale).collect(),
+        axis_top,
+        axis_mid,
+    }
+}
+
+/// Scale only the samples the sparkline will draw for `bars` slots.
+pub(super) fn scale_visible_rates(rx: &[f32], tx: &[f32], bars: usize) -> ScaledRates {
+    scale_rate_pair(visible_tail(rx, bars), visible_tail(tx, bars))
+}
+
+pub(super) fn float_model(values: &[f32]) -> ModelRc<f32> {
+    ModelRc::from(Rc::new(VecModel::from(values.to_vec())))
 }
 
 /// Build the filesystem-usage model (path, "avail/total", used fraction).
@@ -41,7 +123,8 @@ pub(super) fn disk_model(disks: &[(String, u64, u64)]) -> ModelRc<DiskInfo> {
 }
 
 /// Build the process-monitor model for the popup (#23). `cpu`/`mem` are
-/// pre-formatted to one decimal; `cpu_frac` (0..1) drives the row's load bar.
+/// pre-formatted to one decimal; `mem_size` is resident size via [`format_size`];
+/// `cpu_frac` (0..1) drives the row's load bar.
 pub(super) fn set_process_action_error(weak: &slint::Weak<ProcWindow>, message: &str) {
     if let Some(window) = weak.upgrade() {
         window.set_action_busy(false);
@@ -56,20 +139,225 @@ pub(super) fn process_needs_root(current_user: &str, process_user: &str) -> bool
     current_user != "root" && process_user != current_user
 }
 
-pub(super) fn proc_rows(procs: &[ProcInfo], current_user: &str, tab_id: &str) -> Vec<ProcRow> {
-    procs
-        .iter()
+/// Column indexes match the process-window headers: 0 PID, 1 user, 2 CPU%,
+/// 3 MEM%, 4 resident size, 5 command. Anything else sorts by CPU.
+pub(super) fn proc_rows(
+    procs: &[ProcInfo],
+    current_user: &str,
+    tab_id: &str,
+    sort_col: i32,
+    sort_desc: bool,
+) -> Vec<ProcRow> {
+    let mut order: Vec<&ProcInfo> = procs.iter().collect();
+    order.sort_by(|a, b| {
+        let ord = match sort_col {
+            0 => a.pid.cmp(&b.pid),
+            1 => cmp_ignore_case(&a.user, &b.user),
+            3 => a.mem.total_cmp(&b.mem),
+            4 => a.rss_kib.cmp(&b.rss_kib),
+            5 => cmp_ignore_case(&a.command, &b.command),
+            _ => a.cpu.total_cmp(&b.cpu),
+        };
+        let ord = if sort_desc { ord.reverse() } else { ord };
+        ord.then(a.pid.cmp(&b.pid))
+    });
+    order
+        .into_iter()
         .map(|p| ProcRow {
             tab_id: tab_id.into(),
             pid: p.pid.to_string().into(),
             user: p.user.clone().into(),
             cpu: format!("{:.1}", p.cpu).into(),
             mem: format!("{:.1}", p.mem).into(),
+            mem_size: format_size(p.rss_kib.saturating_mul(1024)).into(),
             command: p.command.clone().into(),
             cpu_frac: (p.cpu / 100.0).clamp(0.0, 1.0),
             own_process: !process_needs_root(current_user, &p.user),
         })
         .collect()
+}
+
+fn cmp_ignore_case(a: &str, b: &str) -> std::cmp::Ordering {
+    a.to_lowercase().cmp(&b.to_lowercase())
+}
+
+pub(super) fn proc_sort(win: &AppWindow) -> (i32, bool) {
+    (
+        win.get_proc_sort_col().clamp(0, 5),
+        win.get_proc_sort_desc(),
+    )
+}
+
+#[cfg(test)]
+mod net_history_tests {
+    use super::super::dock_stacks::MAX_THICK;
+    use super::super::NET_HISTORY_LEN;
+    use super::net_bars_for_graph_width;
+    use crate::resource::system::{
+        sparkline_bars_for_width, RATE_AXIS_GAP_PX, RATE_AXIS_LABEL_PX, SPARKLINE_EDGE_CHROME_PX,
+        SPARKLINE_MAX_SIDEBAR_PX,
+    };
+
+    #[test]
+    fn sidebar_width_changes_time_range_not_bar_pitch() {
+        // Edge padding is 40px. The rate axis adds its label column and gap;
+        // the latency sparkline does not, so it is the wider graph.
+        let rate_chrome = SPARKLINE_EDGE_CHROME_PX + RATE_AXIS_LABEL_PX + RATE_AXIS_GAP_PX;
+        let bars = |sidebar_px: f32| net_bars_for_graph_width(sidebar_px - rate_chrome);
+        let latency_bars =
+            |sidebar_px: f32| sparkline_bars_for_width(sidebar_px - SPARKLINE_EDGE_CHROME_PX);
+        assert_eq!(bars(220.0), 40);
+        assert_eq!(bars(160.0), 20);
+        assert_eq!(bars(520.0), 140);
+        assert!(bars(160.0) < bars(220.0));
+        assert!(bars(520.0) > bars(220.0));
+        assert_eq!(MAX_THICK, SPARKLINE_MAX_SIDEBAR_PX);
+        // Fixed pitch: the ring covers the current maximum, including the
+        // latency chart that has no axis column. Shrinking still keeps those
+        // samples; the old 520px/160 cap does not.
+        assert!(NET_HISTORY_LEN >= bars(MAX_THICK));
+        assert_eq!(NET_HISTORY_LEN, latency_bars(MAX_THICK));
+        assert!(NET_HISTORY_LEN > latency_bars(520.0));
+        assert!(NET_HISTORY_LEN > 160);
+        assert_eq!(net_bars_for_graph_width(0.0), 1);
+        assert_eq!(net_bars_for_graph_width(f32::NAN), 1);
+    }
+
+    #[test]
+    fn up_and_down_share_one_axis() {
+        let scaled = super::scale_rate_pair(&[0.0, 1024.0], &[0.0, 2048.0]);
+        assert_eq!(scaled.axis_top, "2K");
+        assert_eq!(scaled.axis_mid, "1K");
+        assert!(scaled.axis_top.len() <= 6);
+        assert!(scaled.axis_mid.len() <= 6);
+        assert!((scaled.tx.last().copied().unwrap() - 1.0).abs() < 0.001);
+        assert!((scaled.rx.last().copied().unwrap() - 0.5).abs() < 0.001);
+        let idle = super::scale_rate_pair(&[0.0, f32::NAN], &[0.0]);
+        assert_eq!(idle.axis_top, "0");
+        assert_eq!(idle.axis_mid, "0");
+        assert_eq!(idle.rx, vec![0.0, 0.0]);
+    }
+
+    /// A spike that has scrolled off a narrow sidebar must not keep the axis
+    /// (or the visible bar heights) at that old peak. Widening includes it again.
+    #[test]
+    fn axis_follows_the_visible_window_not_the_ring() {
+        let spike = 8.0 * 1024.0 * 1024.0 * 1024.0;
+        let mut rx = vec![0.0; 20];
+        rx[0] = spike;
+        rx[18] = 175.0;
+        rx[19] = 50.0;
+        let tx = vec![245.0; 20];
+        let narrow = super::scale_visible_rates(&rx, &tx, 4);
+        assert_eq!(narrow.rx.len(), 4);
+        assert_eq!(narrow.tx.len(), 4);
+        assert_eq!(narrow.axis_top, "245");
+        assert!(!narrow.axis_top.contains('G'), "{}", narrow.axis_top);
+        assert!((narrow.tx[0] - 1.0).abs() < 0.001);
+        assert!((narrow.rx[2] - (175.0 / 245.0)).abs() < 0.001);
+        let wide = super::scale_visible_rates(&rx, &tx, 20);
+        assert_eq!(wide.rx.len(), 20);
+        assert_eq!(wide.axis_top, "8G");
+        assert!((wide.rx[19] - (50.0 / spike)).abs() < 0.001);
+
+        let mut latency = vec![2.0; 40];
+        latency[0] = 800.0;
+        latency[39] = 20.0;
+        let drawn = super::normalized_values(super::visible_tail(&latency, 5));
+        assert_eq!(drawn.len(), 5);
+        assert!((drawn[4] - 1.0).abs() < 0.001, "{drawn:?}");
+        let full = super::normalized_values(super::visible_tail(&latency, 40));
+        assert!((full[39] - (20.0 / 800.0)).abs() < 0.001);
+    }
+
+    /// Speed and latency each show one reading plus one 48px sparkline, and
+    /// neither row stretches. A stretching latency body is what opened the
+    /// blank band between the value and the orange chart.
+    #[test]
+    fn latency_mode_does_not_reserve_unused_vertical_space() {
+        let src = include_str!("../../ui/sidebar.slint");
+        let start = src
+            .find("if root.latency-mode : VerticalLayout {")
+            .expect("latency layout");
+        let rest = &src[start..];
+        let end = rest.find("component DiskBlock").expect("disk block");
+        let block = &rest[..end];
+        assert!(
+            block.contains("vertical-stretch: 0"),
+            "latency body must stay at its preferred height"
+        );
+        assert!(
+            block.contains("alignment: start"),
+            "extra height must not separate the latency value from its sparkline"
+        );
+        assert_eq!(block.matches("Sparkline {").count(), 1);
+        assert!(block.contains("height: 48px"));
+        assert!(
+            !block.contains("NetGraph {"),
+            "latency mode must not keep a second rate graph"
+        );
+
+        let speed = local_metric_slots(false);
+        let latency = local_metric_slots(true);
+        assert_eq!(speed.len(), latency.len(), "no extra latency slot");
+        assert!(speed
+            .iter()
+            .chain(latency.iter())
+            .all(|row| row.stretch == 0.0));
+        assert_eq!(phantom_gap(&speed, 480.0), 0.0);
+        assert_eq!(phantom_gap(&latency, 480.0), 0.0);
+        let speed_h = preferred_height(&speed);
+        let latency_h = preferred_height(&latency);
+        assert!(
+            (speed_h - latency_h).abs() < 24.0,
+            "speed {speed_h}px vs latency {latency_h}px"
+        );
+    }
+
+    struct MetricSlot {
+        stretch: f32,
+        preferred_px: f32,
+    }
+
+    fn local_metric_slots(latency_mode: bool) -> [MetricSlot; 2] {
+        if latency_mode {
+            [
+                MetricSlot {
+                    stretch: 0.0,
+                    preferred_px: 14.0,
+                },
+                MetricSlot {
+                    stretch: 0.0,
+                    preferred_px: 48.0,
+                },
+            ]
+        } else {
+            [
+                MetricSlot {
+                    stretch: 0.0,
+                    preferred_px: 16.0,
+                },
+                MetricSlot {
+                    stretch: 0.0,
+                    preferred_px: 48.0,
+                },
+            ]
+        }
+    }
+
+    fn preferred_height(rows: &[MetricSlot]) -> f32 {
+        let spacing = 3.0 * rows.len().saturating_sub(1) as f32;
+        spacing + rows.iter().map(|row| row.preferred_px).sum::<f32>()
+    }
+
+    fn phantom_gap(rows: &[MetricSlot], sidebar_extra_px: f32) -> f32 {
+        let stretch: f32 = rows.iter().map(|row| row.stretch).sum();
+        if stretch > 0.0 {
+            sidebar_extra_px
+        } else {
+            0.0
+        }
+    }
 }
 
 #[cfg(test)]

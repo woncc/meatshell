@@ -161,6 +161,9 @@ fn sftp_context(
     }
     let id = required_string(arguments, "session_id")?;
     let session = visible_session(&store, id, frontend)?.clone();
+    if !store.sftp_enabled() {
+        return Err(anyhow!("SFTP is disabled in Settings > SFTP"));
+    }
     if session.kind.as_str() != "ssh" {
         return Err(anyhow!("SFTP tools only support SSH sessions"));
     }

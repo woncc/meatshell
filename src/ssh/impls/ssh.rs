@@ -1177,11 +1177,13 @@ where
             )
             .await?
         }
-        None => network_stage(
-            &format!("TCP connect to {addr}"),
-            tokio::net::TcpStream::connect((session.host.as_str(), session.port)),
-        )
-        .await?,
+        None => {
+            network_stage(
+                &format!("TCP connect to {addr}"),
+                tokio::net::TcpStream::connect((session.host.as_str(), session.port)),
+            )
+            .await?
+        }
     };
     let stage = format!("SSH handshake to {addr}");
     let _ = events.send(SessionEvent::Status(stage.clone()));
@@ -1226,7 +1228,10 @@ pub(crate) async fn authenticate_session(
     let authed = match session.auth {
         AuthMethod::Password => {
             let mut ok = network_stage(
-                &format!("password authentication at {}:{}", session.host, session.port),
+                &format!(
+                    "password authentication at {}:{}",
+                    session.host, session.port
+                ),
                 handle.authenticate_password(&user, password.as_str()),
             )
             .await?;
@@ -1274,7 +1279,10 @@ pub(crate) async fn authenticate_session(
             let key_with_hash = PrivateKeyWithHashAlg::new(Arc::new(keypair), hash)
                 .context("invalid private key / hash algorithm combination")?;
             network_stage(
-                &format!("public-key authentication at {}:{}", session.host, session.port),
+                &format!(
+                    "public-key authentication at {}:{}",
+                    session.host, session.port
+                ),
                 handle.authenticate_publickey(&user, key_with_hash),
             )
             .await?
@@ -1486,13 +1494,19 @@ pub async fn execute_command(
 ) -> Result<CommandExecution> {
     // A hop which accepts TCP but never completes SSH must not bypass the
     // caller's timeout. Bound the entire route, authentication and command.
-    match tokio::time::timeout(timeout, execute_command_inner(
-        session, jump, command, timeout, max_output_bytes,
-    )).await {
+    match tokio::time::timeout(
+        timeout,
+        execute_command_inner(session, jump, command, timeout, max_output_bytes),
+    )
+    .await
+    {
         Ok(result) => result,
         Err(_) => Ok(CommandExecution {
-            stdout: String::new(), stderr: String::new(), exit_code: None,
-            timed_out: true, truncated: false,
+            stdout: String::new(),
+            stderr: String::new(),
+            exit_code: None,
+            timed_out: true,
+            truncated: false,
         }),
     }
 }
@@ -1776,10 +1790,11 @@ async fn run_session(
     // differs across distros). Monitoring is best-effort, so even if this shell
     // is unusual and the reset finds nothing, only the sidebar stats are lost.
     // The `ps` section feeds the process monitor (#23): top-40 by CPU, columns
-    // pid/user/pcpu/pmem/args, each line clipped to 200 chars so a giant command
-    // line can't bloat the stream. A host whose `ps` lacks `--sort`/`-o` simply
-    // yields nothing (2>/dev/null), degrading to an empty process list.
-    const MON_CMD: &[u8] = b"PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH; while :; do awk '/^cpu /{print}' /proc/stat; awk '/^(MemTotal|MemAvailable|SwapTotal|SwapFree|Buffers|Cached):/{print}' /proc/meminfo; cat /proc/net/dev; echo __DF__; df -kP 2>/dev/null; echo __MSTICK__; sleep 2; done\n";
+    // pid/user/pcpu/pmem/rss/args. `rss` is resident size in KiB. Each line is
+    // clipped to 200 chars so a giant command line can't bloat the stream. A
+    // host whose `ps` lacks `--sort`/`-o` simply yields nothing (2>/dev/null),
+    // degrading to an empty process list.
+    const MON_CMD: &[u8] = b"PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH; while :; do awk '/^cpu /{print}' /proc/stat; awk '/^(MemTotal|MemAvailable|SwapTotal|SwapFree|Buffers|Cached):/{print}' /proc/meminfo; awk '{print \"loadavg \"$1}' /proc/loadavg 2>/dev/null; cat /proc/net/dev; echo __DF__; df -kP 2>/dev/null; echo __MSTICK__; sleep 2; done\n";
     // Detailed system information is intentionally one-shot and last priority.
     // It includes commands such as lspci/hostname that may be slow on some hosts
     // and must never delay either the terminal or the lightweight sidebar sample.
@@ -1798,7 +1813,7 @@ async fn run_session(
     // Process sampling has its own channel. The broader resource command above
     // includes probes such as `df` which can block indefinitely on a stale NFS
     // mount; that must not leave dead PIDs frozen in the process window.
-    const PROC_CMD: &[u8] = b"PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH; while :; do echo __ME__; id -un 2>/dev/null; echo __PS__; ps -eo pid,user:32,pcpu,pmem,args --sort=-pcpu 2>/dev/null | head -n 41 | cut -c -200; echo __PSTICK__; sleep 2; done\n";
+    const PROC_CMD: &[u8] = b"PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH; while :; do echo __ME__; id -un 2>/dev/null; echo __PS__; ps -eo pid,user:32,pcpu,pmem,rss,args --sort=-pcpu 2>/dev/null | head -n 41 | cut -c -200; echo __PSTICK__; sleep 2; done\n";
     let mut proc_channel: Option<Channel<Msg>> = None;
     let mut sys_channel: Option<Channel<Msg>> = None;
     let mut proc_buf = String::new();
@@ -2404,6 +2419,7 @@ fn parse_monitor_block(
     let mut cpu_total = 0u64;
     let mut cpu_idle = 0u64;
     let mut have_cpu = false;
+    let mut load1: Option<f64> = None;
     let mut mem_total = 0u64;
     let mut mem_avail = 0u64;
     let mut mem_buffers = 0u64;
@@ -2520,6 +2536,13 @@ fn parse_monitor_block(
             swap_total = parse_meminfo_kib(v);
         } else if let Some(v) = line.strip_prefix("SwapFree:") {
             swap_free = parse_meminfo_kib(v);
+        } else if let Some(v) = line.strip_prefix("loadavg ") {
+            // Field 1 of /proc/loadavg, printed alone by the monitor command.
+            if let Ok(n) = v.trim().parse::<f64>() {
+                if n.is_finite() && n >= 0.0 {
+                    load1 = Some(n);
+                }
+            }
         } else if net_now.len() < MAX_MON_ENTRIES {
             if let Some((iface, counters)) = parse_net_dev_line(line) {
                 net_now.push((iface, counters.0, counters.1));
@@ -2590,6 +2613,7 @@ fn parse_monitor_block(
 
     Some(SessionEvent::ResourceStats {
         cpu_percent,
+        load1,
         mem_used_kib: mem_total.saturating_sub(mem_avail),
         mem_total_kib: mem_total,
         swap_used_kib: swap_total.saturating_sub(swap_free),
@@ -2759,17 +2783,32 @@ fn build_system_details(
     }
 }
 
-/// Parse one `ps -eo pid,user,pcpu,pmem,args` line into a [`ProcInfo`]. The
-/// header row (`PID` is not numeric) and any malformed line yield `None`.
-/// `args` (everything past the four fixed columns) keeps internal spacing
-/// collapsed — fine for a display-only command column.
+/// Parse one `ps -eo pid,user,pcpu,pmem,rss,args` line into a [`ProcInfo`].
+/// The header row (`PID` is not numeric) and any malformed line yield `None`.
+/// `rss` is resident set size in KiB. A legacy line without `rss` (the fifth
+/// field is not an integer, or it is the whole command) keeps `rss_kib` at 0.
+/// `args` keeps internal spacing collapsed — fine for a display-only command.
 fn parse_ps_line(line: &str) -> Option<ProcInfo> {
     let mut it = line.split_whitespace();
     let pid: u32 = it.next()?.parse().ok()?;
     let user = it.next()?.to_string();
     let cpu: f32 = it.next()?.parse().ok()?;
     let mem: f32 = it.next()?.parse().ok()?;
-    let command = it.collect::<Vec<_>>().join(" ");
+    let fifth = it.next()?;
+    let rest: Vec<&str> = it.collect();
+    let (rss_kib, command) = if let Ok(rss) = fifth.parse::<u64>() {
+        if rest.is_empty() {
+            // Numeric command on the pre-rss layout, not a size with no args.
+            (0, fifth.to_string())
+        } else {
+            (rss, rest.join(" "))
+        }
+    } else {
+        let mut parts = Vec::with_capacity(1 + rest.len());
+        parts.push(fifth);
+        parts.extend(rest);
+        (0, parts.join(" "))
+    };
     if command.is_empty() {
         return None;
     }
@@ -2778,6 +2817,7 @@ fn parse_ps_line(line: &str) -> Option<ProcInfo> {
         user,
         cpu,
         mem,
+        rss_kib,
         command,
     })
 }
@@ -3447,6 +3487,44 @@ mod monitor_hardening_tests {
     }
 
     #[test]
+    fn monitor_sample_reads_one_minute_load_average() {
+        let block = "cpu 1 2 3 4\nMemTotal: 1000 kB\nMemAvailable: 500 kB\nloadavg 0.123\n";
+        let mut prev = None;
+        let mut prev_net = HashMap::new();
+        let mut at = Instant::now();
+        let event = parse_monitor_block(block, &mut prev, &mut prev_net, &mut at).unwrap();
+        match event {
+            super::SessionEvent::ResourceStats { load1, .. } => {
+                let load1 = load1.expect("loadavg");
+                assert!((load1 - 0.123).abs() < 1e-9);
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn monitor_sample_without_loadavg_leaves_it_empty() {
+        let block = "cpu 1 2 3 4\nMemTotal: 1000 kB\nMemAvailable: 500 kB\n";
+        let mut prev = None;
+        let mut prev_net = HashMap::new();
+        let mut at = Instant::now();
+        let event = parse_monitor_block(block, &mut prev, &mut prev_net, &mut at).unwrap();
+        match event {
+            super::SessionEvent::ResourceStats { load1, .. } => assert!(load1.is_none()),
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn monitor_command_prints_loadavg_field() {
+        let cmd = include_str!("ssh.rs");
+        assert!(
+            cmd.contains("awk '{print \\\"loadavg \\\"$1}' /proc/loadavg"),
+            "resource monitor must sample /proc/loadavg field 1"
+        );
+    }
+
+    #[test]
     fn lightweight_resource_sample_does_not_replace_system_details() {
         let block = "cpu 1 2 3 4\nMemTotal: 1000 kB\nMemAvailable: 500 kB\n__DF__\n";
         let mut prev = None;
@@ -3488,6 +3566,22 @@ mod monitor_hardening_tests {
         assert_eq!(procs[0].pid, 42);
         assert_eq!(procs[0].user, "root");
         assert_eq!(procs[0].command, "java -jar demo.jar");
+        assert_eq!(procs[0].rss_kib, 0);
+    }
+
+    #[test]
+    fn ps_line_reads_resident_kib_and_keeps_the_command() {
+        let row = super::parse_ps_line("42 root 3.5 1.2 8192 java -jar demo.jar").unwrap();
+        assert_eq!(row.pid, 42);
+        assert_eq!(row.rss_kib, 8192);
+        assert_eq!(row.command, "java -jar demo.jar");
+        assert!((row.cpu - 3.5).abs() < f32::EPSILON);
+        assert!((row.mem - 1.2).abs() < 0.001);
+
+        // A numeric command with no rss column stays a command, not a size.
+        let legacy = super::parse_ps_line("7 alice 0.0 0.0 404").unwrap();
+        assert_eq!(legacy.rss_kib, 0);
+        assert_eq!(legacy.command, "404");
     }
 }
 

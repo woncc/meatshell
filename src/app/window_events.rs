@@ -117,6 +117,31 @@ pub(super) fn install_window_event_hook(
                             );
                             return EventResult::PreventDefault;
                         }
+                        // Right Shift is often KeyLocation::Standard. Slint drops
+                        // that event, so modifiers.shift stays false and
+                        // Shift+Insert does not paste (#1). Re-inject the side
+                        // Slint does understand and skip the unmapped original.
+                        if let Some(side) = windows_unmapped_shift_side(
+                            &event.logical_key,
+                            &event.physical_key,
+                            event.location,
+                        ) {
+                            let key = match side {
+                                ShiftKeySide::Left => slint::platform::Key::Shift,
+                                ShiftKeySide::Right => slint::platform::Key::ShiftR,
+                            };
+                            let text = key.into();
+                            let slint_event = match event.state {
+                                i_slint_backend_winit::winit::event::ElementState::Pressed => {
+                                    slint::platform::WindowEvent::KeyPressed { text }
+                                }
+                                i_slint_backend_winit::winit::event::ElementState::Released => {
+                                    slint::platform::WindowEvent::KeyReleased { text }
+                                }
+                            };
+                            slint_window.dispatch_event(slint_event);
+                            return EventResult::PreventDefault;
+                        }
                     }
                     #[cfg(target_os = "windows")]
                     WEvent::Ime(i_slint_backend_winit::winit::event::Ime::Disabled) => {

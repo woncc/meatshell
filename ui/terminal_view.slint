@@ -303,6 +303,10 @@ export component TerminalView inherits Rectangle {
     in property <bool> sftp-show-owner: true;
     in property <bool> sftp-show-group: true;
     in property <bool> sftp-available: true;
+    in property <bool> sftp-enabled: true;
+    // Focus mode and the master switch both remove the panel. The per-tab
+    // collapsed flag is left alone so it returns with the previous value.
+    property <bool> sftp-suppressed: root.zen-mode || !root.sftp-enabled;
     in property <[TunnelInfo]> tunnels: [];
 
     // Per-session now (#v0.5): the AppWindow stores these in each TerminalState
@@ -422,6 +426,9 @@ export component TerminalView inherits Rectangle {
     callback sftp-new-folder(string);
     callback sftp-new-file(string);
     callback paste-from-clipboard();
+    // True when this Insert key should paste. Covers Right Shift, which may
+    // not set event.modifiers.shift (#1).
+    callback shift-insert-paste(string /* key */, bool /* reported shift */) -> bool;
     callback copy-terminal-text();
     callback clear-terminal();              // wipe this session's screen buffer
     callback find-query-changed(string);    // recompute search highlights
@@ -635,11 +642,13 @@ export component TerminalView inherits Rectangle {
         // Side-docked SFTP needs enough room for its compact action row and a
         // usable path field. Clamp legacy/saved widths below that floor instead
         // of letting Slint squeeze controls out of alignment.
-        property <length> sf-w: root.sftp-collapsed ? 36px
+        property <length> sf-w: root.sftp-suppressed ? 0px
+            : root.sftp-collapsed ? 36px
             : root.sftp-horizontal ? max(300px, root.sftp-panel-width)
             : root.sftp-panel-width;
-        property <length> sf-h: root.sftp-collapsed ? 36px : root.sftp-panel-height;
-        property <length> sp: root.sftp-collapsed ? 0px : 4px;
+        property <length> sf-h: root.sftp-suppressed ? 0px
+            : root.sftp-collapsed ? 36px : root.sftp-panel-height;
+        property <length> sp: root.sftp-suppressed || root.sftp-collapsed ? 0px : 4px;
         // The collapsed bar (sf-h) already reserves the bottom strip now.
         property <length> bottom-strip-h: 0px;
 
@@ -1256,8 +1265,12 @@ export component TerminalView inherits Rectangle {
                         ime-input.focus();
                         accept
                     // ── Paste: Shift+Insert (the X11 / xterm paste convention) (#144) ──
+                    // Right Shift must paste too (#1). Slint often omits
+                    // modifiers.shift for that key; shift-insert-paste also
+                    // checks the physical Shift keys.
                     } else if (root.extra-paste-shortcuts-enabled
-                            && event.modifiers.shift && event.text == Key.Insert) {
+                            && ((event.modifiers.shift && event.text == Key.Insert)
+                                || root.shift-insert-paste(event.text, event.modifiers.shift))) {
                         root.paste-from-clipboard();
                         ime-input.focus();
                         accept
@@ -1450,7 +1463,12 @@ export component TerminalView inherits Rectangle {
                     background: qc-ta.has-hover || root.quick-open ? Theme.bg-hover : Theme.bg-elevated;
                     qc-ta := TouchArea {
                         mouse-cursor: pointer;
-                        clicked => { root.history-open = false; root.quick-open = !root.quick-open; }
+                        clicked => {
+                            if (!root.zen-mode) {
+                                root.history-open = false;
+                                root.quick-open = !root.quick-open;
+                            }
+                        }
                     }
                     qc-row := HorizontalLayout {
                         width: parent.width; height: parent.height;
@@ -1688,7 +1706,7 @@ export component TerminalView inherits Rectangle {
             }
 
             // --- Quick-command popup (opens upward) --------------------------
-            if root.quick-open : Rectangle {
+            if root.quick-open && !root.zen-mode : Rectangle {
                 x: 8px;
                 width: 420px;
                 height: min(320px, qc-col.preferred-height + 8px);
@@ -2123,7 +2141,7 @@ export component TerminalView inherits Rectangle {
 
         // --- SFTP resize splitter (orientation follows the dock edge) -------
         Rectangle {
-            visible: root.sftp-available && !root.sftp-collapsed;   // gone when collapsed (like the resource splitter)
+            visible: root.sftp-available && !root.sftp-collapsed && !root.sftp-suppressed;
             x: root.sftp-dock == "left"   ? parent.sf-w
              : root.sftp-dock == "right"  ? parent.width - parent.sf-w - 4px
              : 0px;
@@ -2178,7 +2196,7 @@ export component TerminalView inherits Rectangle {
         }
 
         // --- SFTP panel — positioned on the docked edge ---------------------
-        if root.sftp-available : SftpPanel {
+        if root.sftp-available && !root.sftp-suppressed : SftpPanel {
             x: root.sftp-dock == "right"  ? parent.width - parent.sf-w : 0px;
             y: root.sftp-dock == "bottom" ? parent.height - parent.sf-h : 0px;
             width:  root.sftp-horizontal ? parent.sf-w : parent.width;
@@ -2287,7 +2305,7 @@ export component TerminalView inherits Rectangle {
 
         // Collapsed → a ToolStrip icon bar at the docked edge (M5), filling the
         // 36px slot the panel shrank to; click the icon to re-expand.
-        if root.sftp-collapsed : ToolStrip {
+        if root.sftp-collapsed && !root.sftp-suppressed : ToolStrip {
             x: root.sftp-dock == "right"  ? parent.width - parent.sf-w : 0px;
             y: root.sftp-dock == "bottom" ? parent.height - parent.sf-h : 0px;
             width:  root.sftp-horizontal ? parent.sf-w : parent.width;

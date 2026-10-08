@@ -53,6 +53,9 @@ export struct TransferInfo {
 export struct TerminalState {
     id: string,
     status: string,
+    status-raw: string,     // unmasked status line
+    identity-user: string,  // real user used only to mask `status`
+    identity-host: string,  // real host used only to mask `status`
     spans: [TermSpan],     // coloured runs of the visible terminal screen
     cursor-row: int,       // cursor cell on the grid
     cursor-col: int,
@@ -368,16 +371,49 @@ export component AppWindow inherits Window {
     in property <float> cpu-percent;
     in property <float> mem-percent;
     in property <float> swap-percent;
+    in property <string> cpu-detail;
     in property <string> mem-detail;
     in property <string> swap-detail;
-    // Dual network panel.  "top" follows the active tab (remote NIC on a
-    // session tab, local on the welcome tab); "bot" is always the local machine.
+    // Dual network panel. "top" follows the active tab (remote NIC on a
+    // session tab, local on the welcome tab). "bot" is the local panel:
+    // realtime speed by default, or latency when local-latency-mode is set.
     in property <string> net-top-up;        // ↑ tx rate text
     in property <string> net-top-down;      // ↓ rx rate text
     in property <[float]> net-top-history;
     in property <string> net-bot-up;
     in property <string> net-bot-down;
     in property <[float]> net-bot-history;
+    in property <[float]> net-top-up-history;
+    in property <string> net-top-axis-top: "0";
+    in property <string> net-top-axis-mid: "0";
+    in property <[float]> net-bot-up-history;
+    in property <string> net-bot-axis-top: "0";
+    in property <string> net-bot-axis-mid: "0";
+    // Empty override keeps Theme.success (upload) and Theme.accent (download).
+    in property <bool> net-up-custom: false;
+    in property <color> net-up-color: #34c759;
+    in property <bool> net-down-custom: false;
+    in property <color> net-down-color: #4a90e2;
+    in-out property <string> net-up-color-hex: "";
+    in-out property <string> net-down-color-hex: "";
+    property <brush> net-up-brush: root.net-up-custom ? root.net-up-color : Theme.success;
+    property <brush> net-down-brush: root.net-down-custom ? root.net-down-color : Theme.accent;
+    callback set-net-up-color(string) -> bool;
+    callback set-net-down-color(string) -> bool;
+    in-out property <bool> local-latency-mode: false;
+    // Local speed/latency block under the remote graph. Default on.
+    in-out property <bool> show-local-metric: true;
+    callback set-show-local-metric(bool);
+    in property <string> local-metric-label: "Local speed";
+    in property <string> local-latency-text: "--";
+    in property <[float]> local-latency-history;
+    callback set-local-latency-mode(bool);
+    // Last measured sparkline widths, in logical px. The rate axis and the
+    // latency bars scale from the samples that fit in these widths.
+    in-out property <float> rate-plot-px: 0;
+    in-out property <float> latency-plot-px: 0;
+    callback rate-plot-resized(float);
+    callback latency-plot-resized(float);
     in property <[string]> net-ifaces;      // remote NIC names for the selector
     in property <string> net-selected;      // currently selected NIC
     in property <bool> net-show-selector;   // only on a live session tab
@@ -449,7 +485,8 @@ export component AppWindow inherits Window {
     property <length> toolbar-y:
         (root.custom-titlebar ? 43px : 5px + root.titlebar-inset) + root.toolbar-y-off;
     in-out property <bool> about-open: false;     // centered About dialog
-    callback open-repo();                          // open the project's GitHub page
+    callback open-repo();                          // open this fork's GitHub page
+    callback open-upstream();                      // open the original yituorou/meatshell page
     in-out property <bool> shortcuts-open: false; // centered keyboard-shortcuts dialog (#103)
     in property <string> download-dir;      // preset SFTP download folder ("" = ask)
     // Download (Transfers) popup size + resize-drag state. The popup is an
@@ -475,8 +512,12 @@ export component AppWindow inherits Window {
     // stay here as the live data source shared with that window (#23).
     callback open-processes();
     in-out property <bool> process-window-open: false;
+    // Mirrors ProcWindow sort-col / sort-desc so a refresh keeps the header choice.
+    // 0 PID, 1 user, 2 CPU%, 3 MEM%, 4 resident size, 5 command.
+    in-out property <int> proc-sort-col: 2;
+    in-out property <bool> proc-sort-desc: true;
     in property <bool> proc-available;       // a live remote session is active
-    in property <[ProcRow]> proc-list;       // top remote processes by CPU
+    in property <[ProcRow]> proc-list;       // sampled processes, ordered by proc-sort-col
     callback open-system-info();
     in-out property <bool> system-info-window-open: false;
     in property <bool> system-info-available; // connected Linux session only (#268)
@@ -642,6 +683,9 @@ export component AppWindow inherits Window {
     // SFTP follows the terminal's cd; opt out in Interface settings.
     in-out property <bool> sftp-follow-cd: true;
     callback set-sftp-follow-cd(bool);             // apply + persist
+    // Master SFTP switch. Default on, including when an old config omits it.
+    in-out property <bool> sftp-enabled: true;
+    callback set-sftp-enabled(bool);
     // Hide the quick-command bar under the terminal; toolbar toggle persists it.
     in-out property <bool> cmd-bar-hidden: false;
     callback set-cmd-bar-hidden(bool);             // apply + persist
@@ -664,6 +708,10 @@ export component AppWindow inherits Window {
     callback set-extra-paste-shortcuts-enabled(bool);
     in-out property <bool> zen-mode: false;
     callback set-zen-mode(bool);
+    // Eye toggle: hide SSH/Telnet/RDP usernames and hosts for screenshots.
+    // Default off (plaintext). Does not change the live connection.
+    in-out property <bool> hide-ssh-identity: false;
+    callback set-hide-ssh-identity(bool);
     // Zen empties/restores the whole dock stack without resizing the frame, so
     // every entry point (keyboard toggle AND the settings switch through the
     // two-way binding) must re-run the dock geometry — one hook covers them all
@@ -1156,6 +1204,8 @@ export component AppWindow inherits Window {
     // --- Clipboard callbacks ----------------------------------------------
     // Paste clipboard text into the active terminal.
     callback paste-from-clipboard(string /* tab-id */);
+    // Shift+Insert, including Right Shift when the modifier flag is missing (#1).
+    callback shift-insert-paste(string /* key */, bool /* reported shift */) -> bool;
     // Copy the current terminal screen buffer to the clipboard.
     callback copy-terminal-text(string /* tab-id */);
     // Clear a session's terminal buffer (its visible screen + scrollback).
@@ -1684,6 +1734,7 @@ export component AppWindow inherits Window {
                 cpu-percent: root.cpu-percent;
                 mem-percent: root.mem-percent;
                 swap-percent: root.swap-percent;
+                cpu-detail: root.cpu-detail;
                 mem-detail: root.mem-detail;
                 swap-detail: root.swap-detail;
                 net-top-up: root.net-top-up;
@@ -1691,7 +1742,20 @@ export component AppWindow inherits Window {
                 net-top-history: root.net-top-history;
                 net-bot-up: root.net-bot-up;
                 net-bot-down: root.net-bot-down;
+                net-top-up-history: root.net-top-up-history;
+                net-top-axis-top: root.net-top-axis-top;
+                net-top-axis-mid: root.net-top-axis-mid;
                 net-bot-history: root.net-bot-history;
+                net-bot-up-history: root.net-bot-up-history;
+                net-bot-axis-top: root.net-bot-axis-top;
+                net-bot-axis-mid: root.net-bot-axis-mid;
+                net-up-color: root.net-up-brush;
+                net-down-color: root.net-down-brush;
+                local-latency-mode: root.local-latency-mode;
+                show-local-metric: root.show-local-metric;
+                local-metric-label: root.local-metric-label;
+                local-latency-text: root.local-latency-text;
+                local-latency-history: root.local-latency-history;
                 net-ifaces: root.net-ifaces;
                 net-selected: root.net-selected;
                 net-show-selector: root.net-show-selector;
@@ -1700,6 +1764,10 @@ export component AppWindow inherits Window {
                 proc-available: root.proc-available;
                 app-version: root.app-version;
                 select-net-iface(i) => { root.select-net-iface(i); }
+                toggle-local-metric() => {
+                    root.local-latency-mode = !root.local-latency-mode;
+                    root.set-local-latency-mode(root.local-latency-mode);
+                }
                 show-system-info() => { root.open-system-info(); }
                 show-processes() => { root.open-processes(); }
                 copy-host(h) => { root.copy-text(h); }   // reuse the clipboard helper (#192)
@@ -1992,6 +2060,7 @@ export component AppWindow inherits Window {
                         sftp-sort-key: term.sftp-sort-key;
                         sftp-sort-dir: term.sftp-sort-dir;
                         sftp-available: term.sftp-available;
+                        sftp-enabled: root.sftp-enabled;
                         tunnels: term.tunnels;
                         quick-commands: root.quick-commands;
                         quick-sidebar-enabled: root.quick-commands-as-sidebar;
@@ -2112,6 +2181,7 @@ export component AppWindow inherits Window {
                             root.sftp-prompt-open = true;
                         }
                         paste-from-clipboard() => { root.paste-from-clipboard(term.id); }
+                        shift-insert-paste(key, shift) => { root.shift-insert-paste(key, shift) }
                         copy-terminal-text() => { root.copy-terminal-text(term.id); }
                         clear-terminal() => { root.clear-terminal(term.id); }
                         find-query-changed(q) => { root.find-query-changed(term.id, q); }
@@ -2295,6 +2365,7 @@ export component AppWindow inherits Window {
                     cpu-percent: root.cpu-percent;
                     mem-percent: root.mem-percent;
                     swap-percent: root.swap-percent;
+                    cpu-detail: root.cpu-detail;
                     mem-detail: root.mem-detail;
                     swap-detail: root.swap-detail;
                     net-top-up: root.net-top-up;
@@ -2302,7 +2373,20 @@ export component AppWindow inherits Window {
                     net-top-history: root.net-top-history;
                     net-bot-up: root.net-bot-up;
                     net-bot-down: root.net-bot-down;
+                    net-top-up-history: root.net-top-up-history;
+                    net-top-axis-top: root.net-top-axis-top;
+                    net-top-axis-mid: root.net-top-axis-mid;
                     net-bot-history: root.net-bot-history;
+                    net-bot-up-history: root.net-bot-up-history;
+                    net-bot-axis-top: root.net-bot-axis-top;
+                    net-bot-axis-mid: root.net-bot-axis-mid;
+                    net-up-color: root.net-up-brush;
+                    net-down-color: root.net-down-brush;
+                    local-latency-mode: root.local-latency-mode;
+                    show-local-metric: root.show-local-metric;
+                    local-metric-label: root.local-metric-label;
+                    local-latency-text: root.local-latency-text;
+                    local-latency-history: root.local-latency-history;
                     net-ifaces: root.net-ifaces;
                     net-selected: root.net-selected;
                     net-show-selector: root.net-show-selector;
@@ -2311,6 +2395,12 @@ export component AppWindow inherits Window {
                     proc-available: root.proc-available;
                     app-version: root.app-version;
                     select-net-iface(i) => { root.select-net-iface(i); }
+                    toggle-local-metric() => {
+                        root.local-latency-mode = !root.local-latency-mode;
+                        root.set-local-latency-mode(root.local-latency-mode);
+                    }
+                    rate-plot-resized(px) => { root.rate-plot-resized(px); }
+                    latency-plot-resized(px) => { root.latency-plot-resized(px); }
                     show-system-info() => { root.open-system-info(); }
                     show-processes() => { root.open-processes(); }
                     copy-host(h) => { root.copy-text(h); }
@@ -2385,7 +2475,7 @@ export component AppWindow inherits Window {
                     delete-group(name) => { root.delete-group(name); }
                     remove-session(id) => { root.remove-session(id); }
                 }
-                if gp.kind == "quick" : QuickDockPanel {
+                if gp.kind == "quick" && !root.zen-mode : QuickDockPanel {
                     width: parent.width;
                     height: parent.height;
                     commands: root.quick-commands;
@@ -2613,6 +2703,64 @@ export component AppWindow inherits Window {
             ? (root.cmd-bar-hidden ? "Show command bar" : "Hide command bar")
             : (root.cmd-bar-hidden ? "显示命令栏" : "隐藏命令栏");
         clicked => { root.cmd-bar-hidden = !root.cmd-bar-hidden; root.set-cmd-bar-hidden(root.cmd-bar-hidden); }
+    }
+    // Left-most toolbar button. Later buttons stay to its right so the
+    // group remains right-aligned and Focus stays at the left end.
+    focus-btn := Rectangle {
+        width: focus-label.preferred-width + 16px;
+        height: 26px;
+        x: root.width - 184px - root.toolbar-x-off - 6px - self.width;
+        y: root.toolbar-y;
+        border-radius: Theme.radius-sm;
+        background: focus-ta.has-hover ? Theme.bg-hover : transparent;
+        focus-ta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                root.zen-mode = !root.zen-mode;
+                root.set-zen-mode(root.zen-mode);
+            }
+        }
+        focus-label := Text {
+            x: 8px;
+            text: @tr("Focus");
+            color: root.zen-mode ? Theme.text-primary : Theme.text-muted;
+            font-size: Theme.fs-sm;
+            font-weight: root.zen-mode ? 600 : 400;
+            vertical-alignment: center;
+            height: parent.height;
+        }
+        if focus-ta.has-hover : Rectangle {
+            y: parent.height + 5px;
+            x: parent.width - self.width;
+            width: focus-tip.preferred-width + 16px;
+            height: 22px;
+            background: Theme.bg-elevated;
+            border-radius: Theme.radius-sm;
+            border-width: 1px;
+            border-color: Theme.border-strong;
+            focus-tip := Text {
+                text: root.lang-en ? "Zen mode" : "专注模式";
+                color: Theme.text-primary;
+                font-size: Theme.fs-xs;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                width: parent.width;
+                height: parent.height;
+            }
+        }
+    }
+    IconBtn {
+        x: root.width - 184px - root.toolbar-x-off; y: root.toolbar-y;
+        // Open eye while the address is visible; closed eye while it is masked.
+        icon: root.hide-ssh-identity ? "\u{E8F5}" : "\u{E8F4}";
+        active: root.hide-ssh-identity;
+        tooltip: root.lang-en
+            ? (root.hide-ssh-identity ? "Show SSH user and host" : "Hide SSH user and host")
+            : (root.hide-ssh-identity ? "显示 SSH 用户名和主机" : "隐藏 SSH 用户名和主机");
+        clicked => {
+            root.hide-ssh-identity = !root.hide-ssh-identity;
+            root.set-hide-ssh-identity(root.hide-ssh-identity);
+        }
     }
 
     // Frameless resize edges (#119): thin hit-zones that start an OS-level
@@ -4569,7 +4717,7 @@ export component AppWindow inherits Window {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             width: 520px;
-            height: 188px;
+            height: 220px;
             background: Theme.popup-bg;
             border-radius: Theme.radius-lg;
             border-width: 1px;
@@ -4639,7 +4787,7 @@ export component AppWindow inherits Window {
                         wrap: word-wrap;
                     }
 
-                    // Clickable open-source link → opens the GitHub page.
+                    // Clickable open-source link → opens this fork's GitHub page.
                     HorizontalLayout {
                         alignment: start;
                         spacing: 6px;
@@ -4655,7 +4803,7 @@ export component AppWindow inherits Window {
                             HorizontalLayout {
                                 padding-left: 4px; padding-right: 4px;
                                 Text {
-                                    text: "github.com/yituorou/meatshell";
+                                    text: "github.com/woncc/meatshell";
                                     color: Theme.accent;
                                     font-size: Theme.fs-sm;
                                     vertical-alignment: center;
@@ -4664,6 +4812,35 @@ export component AppWindow inherits Window {
                             repo-ta := TouchArea {
                                 mouse-cursor: pointer;
                                 clicked => { root.open-repo(); }
+                            }
+                        }
+                    }
+
+                    // Upstream credit. Update checks and downloads use the fork link above.
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 6px;
+                        Text {
+                            text: @tr("Fork of");
+                            color: Theme.text-muted;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                        }
+                        Rectangle {
+                            border-radius: Theme.radius-sm;
+                            background: upstream-ta.has-hover ? Theme.bg-hover : transparent;
+                            HorizontalLayout {
+                                padding-left: 4px; padding-right: 4px;
+                                Text {
+                                    text: "github.com/yituorou/meatshell";
+                                    color: Theme.accent;
+                                    font-size: Theme.fs-sm;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            upstream-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.open-upstream(); }
                             }
                         }
                     }
@@ -4684,6 +4861,7 @@ export component AppWindow inherits Window {
         height: parent.height;
         is-open <=> root.dialog-open;
         is-editing <=> root.dialog-editing;
+        hide-identity: root.hide-ssh-identity;
         is-mac: root.is-mac;
         covered: root.active-modal != ModalKind.session;
         draft-id <=> root.dialog-id;
@@ -4942,7 +5120,7 @@ export component AppWindow inherits Window {
                     font-weight: 600;
                 }
                 Text {
-                    text: root.cred-host;
+                    text: root.hide-ssh-identity ? "****" : root.cred-host;
                     color: Theme.text-secondary;
                     font-family: Theme.font-mono;
                     font-size: Theme.fs-sm;
@@ -4950,6 +5128,7 @@ export component AppWindow inherits Window {
                 if root.cred-need-user : LabeledInput {
                     label: @tr("Username");
                     placeholder: "root";
+                    fixed-mask: root.hide-ssh-identity && root.cred-user != "";
                     value <=> root.cred-user;
                     accepted => { root.cred-accept(); }
                     canceled => { root.cred-reject(); }   // Esc cancels (#140-3)
@@ -5182,7 +5361,16 @@ export component AppWindow inherits Window {
                     output-highlight-rule-status <=> root.output-highlight-rule-status;
                     ui-scale: root.ui-scale;
                     sftp-follow-cd <=> root.sftp-follow-cd;
+                    sftp-enabled <=> root.sftp-enabled;
                     collapse-sidebar-default <=> root.collapse-sidebar-default;
+                    local-latency-mode <=> root.local-latency-mode;
+                    show-local-metric <=> root.show-local-metric;
+                    net-up-color-hex <=> root.net-up-color-hex;
+                    net-down-color-hex <=> root.net-down-color-hex;
+                    net-up-color: root.net-up-color;
+                    net-down-color: root.net-down-color;
+                    net-up-custom: root.net-up-custom;
+                    net-down-custom: root.net-down-custom;
                     collapse-sftp-default <=> root.collapse-sftp-default;
                     sync-upload-enabled <=> root.sync-upload-enabled;
                     webdav-enabled <=> root.webdav-enabled;
@@ -5199,6 +5387,7 @@ export component AppWindow inherits Window {
                     paste-confirm-enabled <=> root.paste-confirm-enabled;
                     extra-paste-shortcuts-enabled <=> root.extra-paste-shortcuts-enabled;
                     zen-mode <=> root.zen-mode;
+                    hide-ssh-identity <=> root.hide-ssh-identity;
                     welcome-as-sidebar <=> root.welcome-as-sidebar;
                     quick-commands-as-sidebar <=> root.quick-commands-as-sidebar;
                     update-check-enabled <=> root.update-check-enabled;
@@ -5237,7 +5426,12 @@ export component AppWindow inherits Window {
                     set-panel-font(v) => { root.set-panel-font(v); }
                     set-renderer-mode(v) => { root.set-renderer-mode(v); }
                     set-sftp-follow-cd(v) => { root.set-sftp-follow-cd(v); }
+                    set-sftp-enabled(v) => { root.set-sftp-enabled(v); }
                     set-collapse-sidebar-default(v) => { root.set-collapse-sidebar-default(v); }
+                    set-local-latency-mode(v) => { root.set-local-latency-mode(v); }
+                    set-show-local-metric(v) => { root.set-show-local-metric(v); }
+                    set-net-up-color(v) => { root.set-net-up-color(v) }
+                    set-net-down-color(v) => { root.set-net-down-color(v) }
                     set-collapse-sftp-default(v) => { root.set-collapse-sftp-default(v); }
                     set-sync-upload-enabled(v) => { root.set-sync-upload-enabled(v); }
                     save-webdav-settings(enabled, url, username, password, remote-path, accept-invalid-certs) => {
@@ -5253,6 +5447,7 @@ export component AppWindow inherits Window {
                     set-paste-confirm-enabled(v) => { root.set-paste-confirm-enabled(v); }
                     set-extra-paste-shortcuts-enabled(v) => { root.set-extra-paste-shortcuts-enabled(v); }
                     set-zen-mode(v) => { root.set-zen-mode(v); }
+                    set-hide-ssh-identity(v) => { root.set-hide-ssh-identity(v); }
                     set-welcome-as-sidebar(v) => { root.set-welcome-as-sidebar(v); }
                     set-quick-commands-as-sidebar(v) => {
                         root.quick-commands-as-sidebar = v;

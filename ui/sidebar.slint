@@ -16,7 +16,9 @@ component StatRow inherits HorizontalLayout {
     in property <string> detail;
     in property <brush> bar-color: Theme.accent;
 
-    spacing: 6px;
+    // Gaps are fixed lengths. Only the bar has a positive stretch, so widening
+    // the sidebar lengthens the bar instead of the space before the value.
+    spacing: 0px;
     padding-left: 8px;
     padding-right: 8px;
     height: 22px;
@@ -26,15 +28,18 @@ component StatRow inherits HorizontalLayout {
         color: Theme.text-secondary;
         font-size: Theme.fs-sm;
         width: 52px;          // fits English "Memory" as well as 中文 "内存"
+        horizontal-stretch: 0;
         vertical-alignment: center;
         overflow: elide;
     }
+
+    Rectangle { width: 6px; horizontal-stretch: 0; }
 
     // Progress bar — stretches to fill the row, with a floor so it stays usable.
     Rectangle {
         background: Theme.bg-root;
         border-radius: 2px;
-        horizontal-stretch: 2;
+        horizontal-stretch: 1;
         min-width: 60px;
 
         Rectangle {
@@ -57,14 +62,14 @@ component StatRow inherits HorizontalLayout {
         }
     }
 
-    // Used/total figure, right-aligned; reserve width so it never gets clipped.
-    Text {
+    // About one CJK em (the row label size). Fixed width: the bar grows, not this gap.
+    if root.detail != "" : Rectangle { width: Theme.fs-sm; horizontal-stretch: 0; }
+
+    if root.detail != "" : Text {
         text: detail;
         color: Theme.text-muted;
         font-size: Theme.fs-xs;
-        horizontal-stretch: 1;
-        min-width: 64px;
-        horizontal-alignment: right;
+        horizontal-stretch: 0;
         vertical-alignment: center;
     }
 }
@@ -76,10 +81,16 @@ component NetGraph inherits VerticalLayout {
     in property <string> up-text;
     in property <string> down-text;
     in property <[float]> history;
+    in property <[float]> history-up;
+    in property <string> axis-top: "0";
+    in property <string> axis-mid: "0";
+    in property <brush> up-color: Theme.success;
+    in property <brush> down-color: Theme.accent;
     in property <bool> show-selector: false;
     in property <[string]> ifaces;
     in property <string> selected;
     callback iface-selected(string);
+    callback plot-resized(float);
 
     // Stay at preferred height; without this the inherited VerticalLayout grabs
     // a stretch share of the sidebar and balloons the sparkline into blank space.
@@ -88,29 +99,29 @@ component NetGraph inherits VerticalLayout {
 
     HorizontalLayout {
         spacing: 3px;
-        Text {                              // ↑ upload (green)
+        Text {                              // upload, default green
             text: "\u{E5D8}";
             font-family: "Material Icons";
-            color: Theme.success;
+            color: root.up-color;
             font-size: Theme.fs-xs;
             vertical-alignment: center;
         }
         Text {
             text: root.up-text;
-            color: Theme.text-secondary;
+            color: root.up-color;
             font-size: Theme.fs-xs;
             vertical-alignment: center;
         }
-        Text {                              // ↓ download (blue)
+        Text {                              // download, default blue
             text: "\u{E5DB}";
             font-family: "Material Icons";
-            color: Theme.accent;
+            color: root.down-color;
             font-size: Theme.fs-xs;
             vertical-alignment: center;
         }
         Text {
             text: root.down-text;
-            color: Theme.text-secondary;
+            color: root.down-color;
             font-size: Theme.fs-xs;
             vertical-alignment: center;
         }
@@ -182,10 +193,43 @@ component NetGraph inherits VerticalLayout {
         }
     }
 
-    Sparkline {
-        height: 48px;
-        values: root.history;
-        line-color: Theme.accent;
+    HorizontalLayout {
+        spacing: 4px;
+        VerticalLayout {
+            // 6 characters (`987.6M`) at the axis font. Grows with ui-scale so
+            // the compact K/M/G labels are never ellipsized.
+            width: 56px * Theme.ui-scale;
+            alignment: start;
+            Text {
+                text: root.axis-top;
+                color: Theme.text-muted;
+                font-size: Theme.fs-xs;
+                horizontal-alignment: right;
+            }
+            Rectangle { vertical-stretch: 1; }
+            Text {
+                text: root.axis-mid;
+                color: Theme.text-muted;
+                font-size: Theme.fs-xs;
+                horizontal-alignment: right;
+            }
+            Rectangle { vertical-stretch: 1; }
+            Text {
+                text: "0";
+                color: Theme.text-muted;
+                font-size: Theme.fs-xs;
+                horizontal-alignment: right;
+            }
+        }
+        Sparkline {
+            horizontal-stretch: 1;
+            height: 48px;
+            values: root.history;
+            values-up: root.history-up;
+            line-color: root.down-color;
+            up-color: root.up-color;
+            resized(px) => { root.plot-resized(px); }
+        }
     }
 }
 
@@ -299,6 +343,7 @@ component StatsBlock inherits VerticalLayout {
     in property <float> cpu-percent;
     in property <float> mem-percent;
     in property <float> swap-percent;
+    in property <string> cpu-detail;
     in property <string> mem-detail;
     in property <string> swap-detail;
     callback show-system-info();
@@ -349,31 +394,114 @@ component StatsBlock inherits VerticalLayout {
                    horizontal-alignment: center; vertical-alignment: center; }
         }
     }
-    StatRow { label: "CPU"; percent: root.cpu-percent; detail: ""; bar-color: Theme.accent; }
+    StatRow { label: "CPU"; percent: root.cpu-percent; detail: root.cpu-detail; bar-color: Theme.accent; }
     StatRow { label: @tr("Memory"); percent: root.mem-percent; detail: root.mem-detail; bar-color: Theme.success; }
     StatRow { label: @tr("Swap"); percent: root.swap-percent; detail: root.swap-detail; bar-color: Theme.warning; }
 }
 
-// Dual network graph (active tab on top, local below).
+// Dual network graph (active tab on top, local panel below).
+// The local panel defaults to realtime speed (upload/download). Latency mode
+// replaces that with ICMP round-trip milliseconds; the speed row is hidden.
 component NetBlock inherits VerticalLayout {
     in property <string> net-top-up;
     in property <string> net-top-down;
     in property <[float]> net-top-history;
+    in property <[float]> net-top-up-history;
+    in property <string> net-top-axis-top: "0";
+    in property <string> net-top-axis-mid: "0";
     in property <bool> net-show-selector;
     in property <[string]> net-ifaces;
     in property <string> net-selected;
     in property <string> net-bot-up;
     in property <string> net-bot-down;
     in property <[float]> net-bot-history;
+    in property <[float]> net-bot-up-history;
+    in property <string> net-bot-axis-top: "0";
+    in property <string> net-bot-axis-mid: "0";
+    in property <brush> up-color: Theme.success;
+    in property <brush> down-color: Theme.accent;
+    in property <bool> latency-mode: false;
+    // Default on. Off removes the title, toggle, and local chart so the
+    // filesystem block below can move up with no leftover gap.
+    in property <bool> show-local-metric: true;
+    in property <string> local-metric-label: "Local speed";
+    in property <string> latency-text: "--";
+    in property <[float]> latency-history;
     callback select-net-iface(string);
+    callback toggle-local-metric();
+    callback rate-plot-resized(float);
+    callback latency-plot-resized(float);
     spacing: 6px;
     NetGraph {
         up-text: root.net-top-up; down-text: root.net-top-down; history: root.net-top-history;
+        history-up: root.net-top-up-history;
+        axis-top: root.net-top-axis-top; axis-mid: root.net-top-axis-mid;
+        up-color: root.up-color; down-color: root.down-color;
         show-selector: root.net-show-selector; ifaces: root.net-ifaces; selected: root.net-selected;
         iface-selected(i) => { root.select-net-iface(i); }
+        plot-resized(px) => { root.rate-plot-resized(px); }
     }
-    Text { text: @tr("Local"); color: Theme.text-muted; font-size: Theme.fs-xs; }
-    NetGraph { up-text: root.net-bot-up; down-text: root.net-bot-down; history: root.net-bot-history; }
+    if root.show-local-metric : Rectangle {
+        height: 16px;
+        vertical-stretch: 0;
+        HorizontalLayout {
+            // Title keeps its preferred width; the icon follows about one CJK
+            // em later. The trailing spacer absorbs extra sidebar width so the
+            // icon does not drift toward the middle of the row.
+            spacing: Theme.fs-sm;
+            alignment: start;
+            Text {
+                text: root.local-metric-label;
+                color: mode-ta.has-hover ? Theme.text-primary : Theme.text-muted;
+                font-size: Theme.fs-xs;
+                horizontal-stretch: 0;
+                vertical-alignment: center;
+            }
+            Text {
+                text: "\u{E8D4}";
+                font-family: "Material Icons";
+                color: Theme.text-muted;
+                font-size: Theme.fs-xs;
+                horizontal-stretch: 0;
+                vertical-alignment: center;
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        // On top of the row so the title, the one-character gap, the icon,
+        // and the blank to the right of the icon all toggle the metric.
+        mode-ta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.toggle-local-metric(); }
+        }
+    }
+    if root.show-local-metric && !root.latency-mode : NetGraph {
+        up-text: root.net-bot-up; down-text: root.net-bot-down; history: root.net-bot-history;
+        history-up: root.net-bot-up-history;
+        axis-top: root.net-bot-axis-top; axis-mid: root.net-bot-axis-mid;
+        up-color: root.up-color; down-color: root.down-color;
+    }
+    if root.show-local-metric && root.latency-mode : VerticalLayout {
+        // Same contract as NetGraph: stay at the preferred height. Stretching
+        // this body lets the value text grow and leaves a blank band above the
+        // sparkline (or between this panel and the disk list).
+        vertical-stretch: 0;
+        alignment: start;
+        spacing: 3px;
+        Text {
+            text: root.latency-text;
+            color: Theme.text-secondary;
+            font-size: Theme.fs-xs;
+            vertical-stretch: 0;
+        }
+        Sparkline {
+            vertical-stretch: 0;
+            horizontal-stretch: 1;
+            height: 48px;
+            values: root.latency-history;
+            line-color: Theme.warning;
+            resized(px) => { root.latency-plot-resized(px); }
+        }
+    }
 }
 
 // Disk-usage list with a hover tooltip, self-contained.
@@ -448,14 +576,29 @@ export component Sidebar inherits Rectangle {
     in property <float> cpu-percent;
     in property <float> mem-percent;
     in property <float> swap-percent;
+    in property <string> cpu-detail;
     in property <string> mem-detail;
     in property <string> swap-detail;
     in property <string> net-top-up;
     in property <string> net-top-down;
     in property <[float]> net-top-history;
+    in property <[float]> net-top-up-history;
+    in property <string> net-top-axis-top: "0";
+    in property <string> net-top-axis-mid: "0";
     in property <string> net-bot-up;
     in property <string> net-bot-down;
     in property <[float]> net-bot-history;
+    in property <[float]> net-bot-up-history;
+    in property <string> net-bot-axis-top: "0";
+    in property <string> net-bot-axis-mid: "0";
+    in property <brush> net-up-color: Theme.success;
+    in property <brush> net-down-color: Theme.accent;
+    // Default false: the local panel shows realtime speed. True shows latency.
+    in property <bool> local-latency-mode: false;
+    in property <bool> show-local-metric: true;
+    in property <string> local-metric-label: "Local speed";
+    in property <string> local-latency-text: "--";
+    in property <[float]> local-latency-history;
     in property <[string]> net-ifaces;
     in property <string> net-selected;
     in property <bool> net-show-selector;
@@ -465,9 +608,12 @@ export component Sidebar inherits Rectangle {
     // always matches Cargo.toml without hand-editing this file.
     in property <string> app-version;
     callback select-net-iface(string);
+    callback toggle-local-metric();
     callback show-system-info();         // open the system-information window
     callback show-processes();           // open the process monitor popup (#23)
     callback copy-host(string);          // copy the connection IP/host to clipboard (#192)
+    callback rate-plot-resized(float);
+    callback latency-plot-resized(float);
     // Drag-to-dock: the header strip is a grab handle; coordinates are reported
     // in window space so the AppWindow can compute the target edge (#dock).
     callback dock-drag-move(length /* abs-x */, length /* abs-y */);
@@ -539,6 +685,7 @@ export component Sidebar inherits Rectangle {
                 system-info-available: root.system-info-available;
                 proc-available: root.proc-available;
                 cpu-percent: root.cpu-percent; mem-percent: root.mem-percent; swap-percent: root.swap-percent;
+                cpu-detail: root.cpu-detail;
                 mem-detail: root.mem-detail; swap-detail: root.swap-detail;
                 show-system-info() => { root.show-system-info(); }
                 show-processes() => { root.show-processes(); }
@@ -547,8 +694,21 @@ export component Sidebar inherits Rectangle {
             NetBlock {
                 net-top-up: root.net-top-up; net-top-down: root.net-top-down; net-top-history: root.net-top-history;
                 net-show-selector: root.net-show-selector; net-ifaces: root.net-ifaces; net-selected: root.net-selected;
+                net-top-up-history: root.net-top-up-history;
+                net-top-axis-top: root.net-top-axis-top; net-top-axis-mid: root.net-top-axis-mid;
                 net-bot-up: root.net-bot-up; net-bot-down: root.net-bot-down; net-bot-history: root.net-bot-history;
+                net-bot-up-history: root.net-bot-up-history;
+                net-bot-axis-top: root.net-bot-axis-top; net-bot-axis-mid: root.net-bot-axis-mid;
+                up-color: root.net-up-color; down-color: root.net-down-color;
+                latency-mode: root.local-latency-mode;
+                show-local-metric: root.show-local-metric;
+                local-metric-label: root.local-metric-label;
+                latency-text: root.local-latency-text;
+                latency-history: root.local-latency-history;
                 select-net-iface(i) => { root.select-net-iface(i); }
+                toggle-local-metric() => { root.toggle-local-metric(); }
+                rate-plot-resized(px) => { root.rate-plot-resized(px); }
+                latency-plot-resized(px) => { root.latency-plot-resized(px); }
             }
             Rectangle { height: 1px; background: Theme.border-subtle; }
             DiskBlock { vertical-stretch: 1; disks: root.disks; }
@@ -595,6 +755,7 @@ export component Sidebar inherits Rectangle {
                     system-info-available: root.system-info-available;
                     proc-available: root.proc-available;
                     cpu-percent: root.cpu-percent; mem-percent: root.mem-percent; swap-percent: root.swap-percent;
+                    cpu-detail: root.cpu-detail;
                     mem-detail: root.mem-detail; swap-detail: root.swap-detail;
                     show-system-info() => { root.show-system-info(); }
                     show-processes() => { root.show-processes(); }
@@ -605,8 +766,21 @@ export component Sidebar inherits Rectangle {
                 min-width: 220px;
                 net-top-up: root.net-top-up; net-top-down: root.net-top-down; net-top-history: root.net-top-history;
                 net-show-selector: root.net-show-selector; net-ifaces: root.net-ifaces; net-selected: root.net-selected;
+                net-top-up-history: root.net-top-up-history;
+                net-top-axis-top: root.net-top-axis-top; net-top-axis-mid: root.net-top-axis-mid;
                 net-bot-up: root.net-bot-up; net-bot-down: root.net-bot-down; net-bot-history: root.net-bot-history;
+                net-bot-up-history: root.net-bot-up-history;
+                net-bot-axis-top: root.net-bot-axis-top; net-bot-axis-mid: root.net-bot-axis-mid;
+                up-color: root.net-up-color; down-color: root.net-down-color;
+                latency-mode: root.local-latency-mode;
+                show-local-metric: root.show-local-metric;
+                local-metric-label: root.local-metric-label;
+                latency-text: root.local-latency-text;
+                latency-history: root.local-latency-history;
                 select-net-iface(i) => { root.select-net-iface(i); }
+                toggle-local-metric() => { root.toggle-local-metric(); }
+                rate-plot-resized(px) => { root.rate-plot-resized(px); }
+                latency-plot-resized(px) => { root.latency-plot-resized(px); }
             }
             Rectangle { width: 1px; background: Theme.border-subtle; }
             DiskBlock { horizontal-stretch: 1; disks: root.disks; }

@@ -120,14 +120,37 @@ pub(super) fn wire_interface_toggles(
         ..
     } = ctx;
     window.set_sftp_follow_cd(store.borrow().sftp_follow_cd());
+    window.set_sftp_enabled(store.borrow().sftp_enabled());
     {
         let store = store.clone();
         let flag = sftp_follow_cd.clone();
         window.on_set_sftp_follow_cd(move |follow| {
+            // The master switch greys this out. Ignore a stale callback so the
+            // stored preference cannot change while SFTP is off.
+            if !store.borrow().sftp_enabled() {
+                return;
+            }
             flag.store(follow, std::sync::atomic::Ordering::Relaxed);
             let mut s = store.borrow_mut();
             s.set_sftp_follow_cd(follow);
             let _ = s.save();
+        });
+    }
+    {
+        let store = store.clone();
+        let core = ctx.core.clone();
+        window.on_set_sftp_enabled(move |enabled| {
+            {
+                let mut s = store.borrow_mut();
+                s.set_sftp_enabled(enabled);
+                let _ = s.save();
+            }
+            core.sftp_enabled
+                .store(enabled, std::sync::atomic::Ordering::Relaxed);
+            for state in core.window_states.borrow().values() {
+                state.main_win.set_sftp_enabled(enabled);
+            }
+            crate::app::session_runtime::apply_sftp_master_switch(&core, enabled);
         });
     }
 
@@ -151,6 +174,7 @@ pub(super) fn wire_interface_toggles(
     window.set_paste_confirm_enabled(store.borrow().paste_confirm_enabled());
     window.set_extra_paste_shortcuts_enabled(store.borrow().extra_paste_shortcuts_enabled());
     window.set_zen_mode(store.borrow().zen_mode());
+    window.set_hide_ssh_identity(store.borrow().hide_ssh_identity());
     {
         let store = store.clone();
         window.on_set_download_always_ask(move |ask| {
@@ -314,6 +338,20 @@ pub(super) fn wire_layout_prefs(ctx: &WinCtx) {
         }
         window.set_collapse_sidebar_default(collapse_sidebar);
         window.set_collapse_sftp_default(collapse_sftp);
+        let local_latency = s.local_panel_latency();
+        window.set_local_latency_mode(local_latency);
+        window.set_show_local_metric(s.show_local_metric());
+        window.set_local_metric_label(
+            (if local_latency {
+                t("延迟", "Latency")
+            } else {
+                t("本机速度", "Local speed")
+            })
+            .into(),
+        );
+        window.set_local_latency_text(if local_latency { "--" } else { "" }.into());
+        apply_stored_rate_color(window, true, &s.net_up_color());
+        apply_stored_rate_color(window, false, &s.net_down_color());
         // Restore the persisted panel docking layout (#dock).
         window.set_sidebar_width(s.sidebar_width());
         window.set_sidebar_height(s.sidebar_height());
@@ -359,6 +397,50 @@ pub(super) fn wire_layout_prefs(ctx: &WinCtx) {
             let mut s = store.borrow_mut();
             s.set_collapse_sidebar_default(v);
             let _ = s.save();
+        });
+    }
+    {
+        let store = store.clone();
+        let weak = window.as_weak();
+        window.on_set_local_latency_mode(move |latency| {
+            {
+                let mut s = store.borrow_mut();
+                s.set_local_panel_latency(latency);
+                let _ = s.save();
+            }
+            if let Some(w) = weak.upgrade() {
+                w.set_local_metric_label(
+                    (if latency {
+                        t("延迟", "Latency")
+                    } else {
+                        t("本机速度", "Local speed")
+                    })
+                    .into(),
+                );
+                w.invoke_refresh_sidebar();
+            }
+        });
+    }
+    {
+        let store = store.clone();
+        window.on_set_show_local_metric(move |show| {
+            let mut s = store.borrow_mut();
+            s.set_show_local_metric(show);
+            let _ = s.save();
+        });
+    }
+    {
+        let store = store.clone();
+        let weak = window.as_weak();
+        window.on_set_net_up_color(move |value: SharedString| {
+            store_rate_color(&store, &weak, true, value.as_str())
+        });
+    }
+    {
+        let store = store.clone();
+        let weak = window.as_weak();
+        window.on_set_net_down_color(move |value: SharedString| {
+            store_rate_color(&store, &weak, false, value.as_str())
         });
     }
     {
@@ -825,4 +907,57 @@ pub(super) fn wire_ui_scale_and_wallpaper(ctx: &WinCtx) {
             }
         });
     }
+}
+
+fn apply_stored_rate_color(window: &AppWindow, upload: bool, stored: &str) {
+    let Some(color) = parse_hex_color(stored) else {
+        return;
+    };
+    if upload {
+        window.set_net_up_custom(true);
+        window.set_net_up_color(color);
+        window.set_net_up_color_hex(stored.into());
+    } else {
+        window.set_net_down_custom(true);
+        window.set_net_down_color(color);
+        window.set_net_down_color_hex(stored.into());
+    }
+}
+
+fn store_rate_color(
+    store: &Rc<RefCell<ConfigStore>>,
+    weak: &slint::Weak<AppWindow>,
+    upload: bool,
+    value: &str,
+) -> bool {
+    let custom = !value.trim().is_empty();
+    let color = if custom {
+        let Some(color) = parse_hex_color(value) else {
+            return false;
+        };
+        Some(color)
+    } else {
+        None
+    };
+    {
+        let mut saved = store.borrow_mut();
+        if !saved.set_net_rate_color(upload, value) {
+            return false;
+        }
+        let _ = saved.save();
+    }
+    if let Some(window) = weak.upgrade() {
+        if upload {
+            window.set_net_up_custom(custom);
+            if let Some(color) = color {
+                window.set_net_up_color(color);
+            }
+        } else {
+            window.set_net_down_custom(custom);
+            if let Some(color) = color {
+                window.set_net_down_color(color);
+            }
+        }
+    }
+    true
 }

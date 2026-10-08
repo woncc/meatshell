@@ -1,11 +1,13 @@
 /// One process row sampled from the remote `ps` (#23). CPU/mem are percentages
-/// as reported by `ps` (pcpu/pmem); `command` is the (width-truncated) args.
+/// as reported by `ps` (pcpu/pmem); `rss_kib` is resident set size in KiB;
+/// `command` is the (width-truncated) args.
 #[derive(Debug, Clone)]
 pub struct ProcInfo {
     pub pid: u32,
     pub user: String,
     pub cpu: f32,
     pub mem: f32,
+    pub rss_kib: u64,
     pub command: String,
 }
 

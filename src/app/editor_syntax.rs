@@ -132,7 +132,10 @@ mod tests {
 
     #[test]
     fn shell_files_highlight_keywords_strings_comments_and_numbers() {
-        let result = highlight("#!/bin/sh\nif [ \"$1\" = \"ok\" ]; then\n  echo 42\nfi\n", "deploy.sh");
+        let result = highlight(
+            "#!/bin/sh\nif [ \"$1\" = \"ok\" ]; then\n  echo 42\nfi\n",
+            "deploy.sh",
+        );
         assert!(result.contains("ff6a9955"));
         assert!(result.contains("ffce9178"));
         assert!(result.contains("ffc586c0"));
@@ -150,7 +153,10 @@ mod tests {
             let start: usize = fields.next().unwrap().parse().unwrap();
             let end: usize = fields.next().unwrap().parse().unwrap();
             let value = &text[start..end];
-            assert!(!value.contains('\n'), "span crossed a line boundary: {value:?}");
+            assert!(
+                !value.contains('\n'),
+                "span crossed a line boundary: {value:?}"
+            );
         }
     }
 }

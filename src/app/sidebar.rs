@@ -1,5 +1,27 @@
 use super::*;
 
+fn rescale_if_plot_width_changed(win: &AppWindow, rate: bool, px: f32) {
+    let next = if px.is_finite() { px } else { 0.0 };
+    let prev = if rate {
+        win.get_rate_plot_px()
+    } else {
+        win.get_latency_plot_px()
+    };
+    if (prev - next).abs() < 0.5 {
+        return;
+    }
+    let prev_bars = crate::resource::system::sparkline_bars_for_width(prev);
+    let next_bars = crate::resource::system::sparkline_bars_for_width(next);
+    if rate {
+        win.set_rate_plot_px(next);
+    } else {
+        win.set_latency_plot_px(next);
+    }
+    if prev_bars != next_bars {
+        win.invoke_refresh_sidebar();
+    }
+}
+
 fn dynamic_sidebar_visible(active: bool, collapsed: bool) -> bool {
     active && !collapsed
 }
@@ -20,7 +42,10 @@ pub(super) fn refresh_process_model(win: &AppWindow, statuses: &TabStatuses) {
         .unwrap()
         .get(&active)
         .filter(|status| status.state == 1)
-        .map(|status| proc_rows(&status.procs, &status.user, &active))
+        .map(|status| {
+            let (col, desc) = proc_sort(win);
+            proc_rows(&status.procs, &status.user, &active, col, desc)
+        })
         .unwrap_or_default();
     if let Some(model) = win
         .get_proc_list()
@@ -44,6 +69,21 @@ mod activity_tests {
     }
 }
 
+fn present_connection(win: &AppWindow, st: &TabStatus, label: String) {
+    let hide = win.get_hide_ssh_identity() && st.redactable;
+    let (user, host) = if st.redactable {
+        identity_from_connection_label(&st.host, &st.user, &st.probe_host)
+    } else {
+        (String::new(), String::new())
+    };
+    win.set_connection_state(displayed_identity_text(hide, &label, &user, &host).into());
+    win.set_conn_host(if hide {
+        "".into()
+    } else {
+        conn_ip(&st.host).into()
+    });
+}
+
 pub(super) fn refresh_sidebar(
     win: &AppWindow,
     statuses: &TabStatuses,
@@ -57,17 +97,18 @@ pub(super) fn refresh_sidebar(
             0.0
         }
     };
-    let snap = local.lock().unwrap().clone();
+    let snap = local.snap.lock().unwrap().clone();
 
-    // --- Bottom network graph: always the local machine --------------------
-    win.set_net_bot_up(format_bytes_per_sec(snap.net_tx_per_sec).into());
-    win.set_net_bot_down(format_bytes_per_sec(snap.net_rx_per_sec).into());
-    win.set_net_bot_history(normalized_model(&local_net_hist.lock().unwrap()));
+    // The lower panel is applied after the active tab is known: speed by
+    // default, or latency to that tab's host when the user opted in.
 
     let set_top_local = |win: &AppWindow| {
         win.set_net_top_up(format_bytes_per_sec(snap.net_tx_per_sec).into());
         win.set_net_top_down(format_bytes_per_sec(snap.net_rx_per_sec).into());
-        win.set_net_top_history(normalized_model(&local_net_hist.lock().unwrap()));
+        {
+            let hist = local_net_hist.lock().unwrap();
+            apply_rate_series(win, true, &hist.rx, &hist.tx);
+        }
         win.set_net_show_selector(false);
         win.set_net_selected("".into());
         win.set_net_ifaces(ModelRc::from(Rc::new(VecModel::<SharedString>::default())));
@@ -77,6 +118,7 @@ pub(super) fn refresh_sidebar(
     let show_local_res = |win: &AppWindow| {
         win.set_resource_title(t("本机资源", "Local resources").into());
         win.set_cpu_percent(snap.cpu_percent);
+        win.set_cpu_detail("".into());
         win.set_mem_percent(snap.mem_percent);
         win.set_swap_percent(snap.swap_percent);
         win.set_mem_detail(format_mem(snap.mem_used_mib, snap.mem_total_mib).into());
@@ -84,6 +126,7 @@ pub(super) fn refresh_sidebar(
     };
     let clear_stats = |win: &AppWindow| {
         win.set_cpu_percent(0.0);
+        win.set_cpu_detail("".into());
         win.set_mem_percent(0.0);
         win.set_swap_percent(0.0);
         win.set_mem_detail("".into());
@@ -104,7 +147,8 @@ pub(super) fn refresh_sidebar(
             .as_any()
             .downcast_ref::<VecModel<ProcRow>>()
         {
-            vm.set_vec(proc_rows(procs, current_user, tab_id));
+            let (col, desc) = proc_sort(win);
+            vm.set_vec(proc_rows(procs, current_user, tab_id, col, desc));
         }
     };
     let set_system_models = |win: &AppWindow,
@@ -224,6 +268,10 @@ pub(super) fn refresh_sidebar(
     } else {
         statuses.lock().unwrap().get(&active).cloned()
     };
+    let probe_host = status
+        .as_ref()
+        .map(|st| st.probe_host.clone())
+        .unwrap_or_default();
 
     match status {
         // Local shell tabs: keep the connection status line, but show the local
@@ -236,15 +284,14 @@ pub(super) fn refresh_sidebar(
             } else {
                 0
             });
-            win.set_connection_state(if st.state == 1 {
+            let label = if st.state == 1 {
                 st.host.clone()
             } else if st.state == 2 {
                 format!("{} {}", st.host, t("已断开", "disconnected"))
             } else {
                 format!("{} {}", t("连接中", "Connecting"), st.host)
-            }
-            .into());
-            win.set_conn_host(conn_ip(&st.host).into());
+            };
+            present_connection(win, &st, label);
             show_local_res(win);
             set_top_local(win);
             show_local_system_models(win);
@@ -252,10 +299,10 @@ pub(super) fn refresh_sidebar(
         // A live remote session tab → remote resources + remote NIC on top.
         Some(st) if st.state == 1 => {
             win.set_conn_state(1);
-            win.set_connection_state(st.host.clone().into());
-            win.set_conn_host(conn_ip(&st.host).into());
+            present_connection(win, &st, st.host.clone());
             win.set_resource_title(t("服务器资源", "Server resources").into());
             win.set_cpu_percent(st.cpu);
+            win.set_cpu_detail(st.load1.map(format_load_average).unwrap_or_default().into());
             win.set_mem_percent(pct(st.mem_used_kib, st.mem_total_kib));
             win.set_swap_percent(pct(st.swap_used_kib, st.swap_total_kib));
             win.set_mem_detail(format_mem(st.mem_used_kib / 1024, st.mem_total_kib / 1024).into());
@@ -265,7 +312,7 @@ pub(super) fn refresh_sidebar(
             let (name, rx, tx) = selected_iface(&st);
             win.set_net_top_up(format_bytes_per_sec(tx).into());
             win.set_net_top_down(format_bytes_per_sec(rx).into());
-            win.set_net_top_history(normalized_model(&st.net_hist));
+            apply_rate_series(win, true, &st.net_hist.rx, &st.net_hist.tx);
             win.set_net_show_selector(!st.net.is_empty());
             win.set_net_selected(name.into());
             let ifaces: Vec<SharedString> = st.net.iter().map(|e| e.0.clone().into()).collect();
@@ -289,8 +336,11 @@ pub(super) fn refresh_sidebar(
         // Disconnected / timed-out session.
         Some(st) if st.state == 2 => {
             win.set_conn_state(2);
-            win.set_connection_state(format!("{} {}", st.host, t("已断开", "disconnected")).into());
-            win.set_conn_host(conn_ip(&st.host).into());
+            present_connection(
+                win,
+                &st,
+                format!("{} {}", st.host, t("已断开", "disconnected")),
+            );
             win.set_resource_title(t("服务器资源", "Server resources").into());
             clear_stats(win);
             set_top_local(win);
@@ -309,8 +359,11 @@ pub(super) fn refresh_sidebar(
         // Still connecting.
         Some(st) => {
             win.set_conn_state(0);
-            win.set_connection_state(format!("{} {}", t("连接中", "Connecting"), st.host).into());
-            win.set_conn_host(conn_ip(&st.host).into());
+            present_connection(
+                win,
+                &st,
+                format!("{} {}", t("连接中", "Connecting"), st.host),
+            );
             win.set_resource_title(t("服务器资源", "Server resources").into());
             clear_stats(win);
             set_top_local(win);
@@ -335,6 +388,118 @@ pub(super) fn refresh_sidebar(
             set_top_local(win);
             show_local_system_models(win);
         }
+    }
+    apply_local_panel(win, local, local_net_hist, &snap, &probe_host);
+}
+
+/// Lower local panel. Default is realtime upload/download. Latency mode shows
+/// milliseconds and clears the throughput strings so the two units cannot mix.
+fn apply_local_panel(
+    win: &AppWindow,
+    local: &LocalSnap,
+    local_net_hist: &NetHist,
+    snap: &SystemSnapshot,
+    probe_host: &str,
+) {
+    let latency_mode = win.get_local_latency_mode();
+    if latency_mode {
+        local.latency.set_target(probe_host);
+    } else {
+        local.latency.set_target("");
+    }
+    let rtt = if latency_mode {
+        local.latency.latest()
+    } else {
+        None
+    };
+    let view = local_metric_view(latency_mode, snap.net_tx_per_sec, snap.net_rx_per_sec, rtt);
+    win.set_local_metric_label(
+        (if latency_mode {
+            t("延迟", "Latency")
+        } else {
+            t("本机速度", "Local speed")
+        })
+        .into(),
+    );
+    win.set_net_bot_up(view.speed_up.into());
+    win.set_net_bot_down(view.speed_down.into());
+    win.set_local_latency_text(view.latency_text.into());
+    if latency_mode {
+        win.set_local_latency_history(normalized_visible(
+            &local.latency.history(),
+            latency_visible_bars(win),
+        ));
+    } else {
+        let hist = local_net_hist.lock().unwrap();
+        apply_rate_series(win, false, &hist.rx, &hist.tx);
+    }
+}
+
+/// How many fixed-pitch bars the rate or latency sparkline is drawing.
+/// The measured plot width wins; before the first layout, the docked panel
+/// width (minus the axis column on rate charts) is the same window.
+fn plot_bars(win: &AppWindow, measured_px: f32, rate: bool) -> usize {
+    let px = if measured_px.is_finite() && measured_px > 1.0 {
+        measured_px
+    } else {
+        let panel = sidebar_span_px(win);
+        let scale = win.get_ui_scale();
+        let scale = if scale.is_finite() && scale > 0.0 {
+            scale
+        } else {
+            1.0
+        };
+        if rate {
+            panel
+                - crate::resource::system::SPARKLINE_EDGE_CHROME_PX
+                - crate::resource::system::RATE_AXIS_LABEL_PX * scale
+                - crate::resource::system::RATE_AXIS_GAP_PX
+        } else {
+            panel - crate::resource::system::SPARKLINE_EDGE_CHROME_PX
+        }
+    };
+    crate::resource::system::sparkline_bars_for_width(px)
+}
+
+fn rate_visible_bars(win: &AppWindow) -> usize {
+    plot_bars(win, win.get_rate_plot_px(), true)
+}
+
+fn latency_visible_bars(win: &AppWindow) -> usize {
+    plot_bars(win, win.get_latency_plot_px(), false)
+}
+
+fn sidebar_span_px(win: &AppWindow) -> f32 {
+    if let Some(model) = win
+        .get_dock_panels()
+        .as_any()
+        .downcast_ref::<VecModel<PanelGeomInfo>>()
+    {
+        for i in 0..model.row_count() {
+            if let Some(panel) = model.row_data(i) {
+                if panel.kind.as_str() == "sidebar" && panel.w > 1.0 {
+                    return panel.w;
+                }
+            }
+        }
+    }
+    win.get_sidebar_width()
+}
+
+fn apply_rate_series(win: &AppWindow, top: bool, rx: &[f32], tx: &[f32]) {
+    let scaled = scale_visible_rates(rx, tx, rate_visible_bars(win));
+    let down = float_model(&scaled.rx);
+    let up = float_model(&scaled.tx);
+    if top {
+        win.set_net_top_history(down);
+        win.set_net_top_up_history(up);
+        win.set_net_top_axis_top(scaled.axis_top.into());
+        win.set_net_top_axis_mid(scaled.axis_mid.into());
+    } else {
+        win.set_net_bot_history(down);
+        win.set_net_bot_up_history(up);
+        win.set_net_bot_axis_top(scaled.axis_top.into());
+        win.set_net_bot_axis_mid(scaled.axis_mid.into());
     }
 }
 
@@ -368,6 +533,30 @@ pub(super) fn wire_sidebar_refresh_and_theme(
             }
         });
     }
+    // The plot reports its real width. Rescale only when that width crosses
+    // a bar, so a drag updates the axis without rebuilding on every pixel.
+    // Deferred so a layout pass cannot re-enter refresh while a history
+    // lock is still held.
+    {
+        let weak = window.as_weak();
+        window.on_rate_plot_resized(move |px| {
+            let weak = weak.clone();
+            slint::Timer::single_shot(std::time::Duration::from_millis(0), move || {
+                let Some(w) = weak.upgrade() else { return };
+                rescale_if_plot_width_changed(&w, true, px);
+            });
+        });
+    }
+    {
+        let weak = window.as_weak();
+        window.on_latency_plot_resized(move |px| {
+            let weak = weak.clone();
+            slint::Timer::single_shot(std::time::Duration::from_millis(0), move || {
+                let Some(w) = weak.upgrade() else { return };
+                rescale_if_plot_width_changed(&w, false, px);
+            });
+        });
+    }
 
     // Switch UI language at runtime.  Static `@tr(...)` text updates live via
     // select_bundled_translation; we additionally refresh the Rust-driven
@@ -389,8 +578,10 @@ pub(super) fn wire_sidebar_refresh_and_theme(
             for i in 0..tabs_model.row_count() {
                 if let Some(mut row) = tabs_model.row_data(i) {
                     if row.id.as_str() == "welcome" {
-                        row.title_len = tab_title_len(&t("新标签页", "New tab"));
-                        row.title = t("新标签页", "New tab").into();
+                        let title = t("新标签页", "New tab");
+                        row.title_len = tab_title_len(&title);
+                        row.title = title.into();
+                        row.title_raw = title.into();
                         tabs_model.set_row_data(i, row);
                     }
                 }

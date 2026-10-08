@@ -64,18 +64,52 @@ pub(crate) struct TabStatus {
     /// local machine's resource panel, not the (empty) remote stats fields.
     pub(crate) is_local: bool,
     pub(crate) cpu: f32,
+    /// 1-minute load average from `/proc/loadavg` field 1, when a remote
+    /// sample included it.
+    pub(crate) load1: Option<f64>,
     pub(crate) mem_used_kib: u64,
     pub(crate) mem_total_kib: u64,
     pub(crate) swap_used_kib: u64,
     pub(crate) swap_total_kib: u64,
     pub(crate) net: Vec<(String, u64, u64)>,
     pub(crate) selected_iface: String,
-    pub(crate) net_hist: Vec<f32>,
+    /// Download (rx) and upload (tx) samples, aligned, bytes/sec.
+    pub(crate) net_hist: RateHist,
     pub(crate) disks: Vec<(String, u64, u64)>,
     pub(crate) procs: Vec<ProcInfo>,
     pub(crate) sys: SystemDetails,
+    /// ICMP target for the local panel's latency mode. Empty for local shells,
+    /// serial sessions, and any host that is not a plain name or address.
+    pub(crate) probe_host: String,
+    /// SSH, Telnet, and RDP labels can be masked. Local shells and serial
+    /// sessions keep their device names.
+    pub(crate) redactable: bool,
+}
+
+/// Aligned download/upload samples for one rate graph.
+#[derive(Clone, Debug)]
+pub(crate) struct RateHist {
+    pub(crate) rx: Vec<f32>,
+    pub(crate) tx: Vec<f32>,
+}
+
+impl RateHist {
+    pub(crate) fn blank(len: usize) -> Self {
+        Self {
+            rx: vec![0.0; len],
+            tx: vec![0.0; len],
+        }
+    }
+}
+
+impl Default for RateHist {
+    fn default() -> Self {
+        Self {
+            rx: Vec::new(),
+            tx: Vec::new(),
+        }
+    }
 }
 
 pub(crate) type TabStatuses = Arc<Mutex<HashMap<String, TabStatus>>>;
-pub(crate) type LocalSnap = Arc<Mutex<SystemSnapshot>>;
-pub(crate) type NetHist = Arc<Mutex<Vec<f32>>>;
+pub(crate) type NetHist = Arc<Mutex<RateHist>>;

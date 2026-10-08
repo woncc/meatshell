@@ -97,6 +97,7 @@ pub(super) fn session_groups_model(store: &ConfigStore) -> ModelRc<SharedString>
 pub(super) fn jump_candidates(
     store: &ConfigStore,
     exclude_id: &str,
+    hide_identity: bool,
 ) -> (ModelRc<SharedString>, ModelRc<SharedString>) {
     let mut labels: Vec<SharedString> = vec![t("请选择跳板机", "Select a jump host").into()];
     let mut ids: Vec<SharedString> = vec!["".into()];
@@ -104,7 +105,7 @@ pub(super) fn jump_candidates(
         if s.kind != SessionKind::Ssh || s.id == exclude_id {
             continue;
         }
-        let label = if s.name.trim().is_empty() {
+        let mut label = if s.name.trim().is_empty() {
             if s.user.trim().is_empty() {
                 s.host.clone()
             } else {
@@ -113,6 +114,9 @@ pub(super) fn jump_candidates(
         } else {
             format!("{} ({}@{}:{})", s.name, s.user, s.host, s.port)
         };
+        if hide_identity {
+            label = redact_connection_text(&label, &s.user, &s.host);
+        }
         labels.push(label.into());
         ids.push(s.id.clone().into());
     }
@@ -144,6 +148,7 @@ fn build_session_rows(
     collapsed_groups: Option<&[String]>,
     builtin_sessions: &[Session],
     query: &str,
+    hide_identity: bool,
 ) -> Vec<SessionInfo> {
     // Group sessions by their `group` (named groups alphabetically, ungrouped
     // last), then by name within each group, and tag the first row of every
@@ -248,13 +253,37 @@ fn build_session_rows(
             rows.push(blank(group));
         } else {
             for (i, s) in gs.iter().enumerate() {
+                let mask = hide_identity
+                    && matches!(
+                        s.kind,
+                        SessionKind::Ssh | SessionKind::Telnet | SessionKind::Rdp
+                    );
+                let name = if mask {
+                    redact_connection_text(&s.name, &s.user, &s.host)
+                } else {
+                    s.name.clone()
+                };
+                let host = if mask && !s.host.trim().is_empty() {
+                    IDENTITY_MASK.to_string()
+                } else {
+                    s.host.clone()
+                };
+                let user = if mask && !s.user.trim().is_empty() {
+                    IDENTITY_MASK.to_string()
+                } else {
+                    s.user.clone()
+                };
+                // The list composes `user@host:port` itself. A zero port and
+                // the mask token keep that line from showing the real port
+                // or a `****@****:63322` shape. The saved session is unchanged.
+                let port = if mask { 0 } else { s.port as i32 };
                 rows.push(SessionInfo {
                     id: s.id.clone().into(),
-                    name: s.name.clone().into(),
-                    host: s.host.clone().into(),
+                    name: name.into(),
+                    host: host.into(),
                     serial_detail: serial_session_detail(s).into(),
-                    port: s.port as i32,
-                    user: s.user.clone().into(),
+                    port,
+                    user: user.into(),
                     auth: s.auth.as_str().into(),
                     last_used: s
                         .last_used
@@ -280,6 +309,7 @@ pub(super) fn sync_sessions_to_model_with_filter(
     store: &ConfigStore,
     model: &VecModel<SessionInfo>,
     query: &str,
+    hide_identity: bool,
 ) {
     let builtin_sessions = builtin_local_sessions(store.wsl_profiles());
     model.set_vec(build_session_rows(
@@ -288,6 +318,7 @@ pub(super) fn sync_sessions_to_model_with_filter(
         store.collapsed_session_groups(),
         &builtin_sessions,
         query,
+        hide_identity,
     ));
 }
 
@@ -301,6 +332,7 @@ pub(super) fn refresh_session_rows_in_place(
     store: &ConfigStore,
     model: &VecModel<SessionInfo>,
     query: &str,
+    hide_identity: bool,
 ) -> bool {
     use slint::Model as _;
     let builtin_sessions = builtin_local_sessions(store.wsl_profiles());
@@ -310,6 +342,7 @@ pub(super) fn refresh_session_rows_in_place(
         store.collapsed_session_groups(),
         &builtin_sessions,
         query,
+        hide_identity,
     );
     if rows.len() == model.row_count() {
         for (i, row) in rows.into_iter().enumerate() {
@@ -320,10 +353,6 @@ pub(super) fn refresh_session_rows_in_place(
         model.set_vec(rows);
         false
     }
-}
-
-pub(super) fn sync_sessions_to_model(store: &ConfigStore, model: &VecModel<SessionInfo>) {
-    sync_sessions_to_model_with_filter(store, model, "");
 }
 
 pub(super) fn builtin_local_sessions(wsl_profiles: &[crate::config::WslProfile]) -> Vec<Session> {
@@ -497,7 +526,10 @@ pub(super) fn session_from_draft(
         jump_session_id: String::new(),
         jump_session_ids: if kind == SessionKind::Ssh {
             crate::config::draft_jump_ids(
-                draft.jumps.iter().map(|hop| (hop.id.to_string(), hop.placeholder)),
+                draft
+                    .jumps
+                    .iter()
+                    .map(|hop| (hop.id.to_string(), hop.placeholder)),
             )
         } else {
             Vec::new()
@@ -627,7 +659,7 @@ mod search_tests {
         let groups = vec!["empty".to_string(), "prod".to_string()];
         let collapsed = vec!["prod".to_string(), "system".to_string()];
 
-        let rows = build_session_rows(&saved, &groups, Some(&collapsed), &builtins, "prod");
+        let rows = build_session_rows(&saved, &groups, Some(&collapsed), &builtins, "prod", false);
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].name.as_str(), "Prod API");
@@ -645,6 +677,7 @@ mod search_tests {
             Some(&["system".to_string()]),
             &builtins,
             "LOCALHOST",
+            false,
         );
 
         assert_eq!(rows.len(), 1);
@@ -659,7 +692,7 @@ mod search_tests {
         let saved = vec![session("1", "Prod API", "10.0.0.8", "prod")];
         let builtins = vec![session("local", "Local terminal", "localhost", "system")];
 
-        let rows = build_session_rows(&saved, &[], None, &builtins, "staging");
+        let rows = build_session_rows(&saved, &[], None, &builtins, "staging", false);
 
         assert!(rows.is_empty());
     }
@@ -670,7 +703,7 @@ mod search_tests {
         let groups = vec!["empty".to_string(), "prod".to_string()];
         let collapsed = vec!["prod".to_string()];
 
-        let rows = build_session_rows(&saved, &groups, Some(&collapsed), &[], "");
+        let rows = build_session_rows(&saved, &groups, Some(&collapsed), &[], "", false);
 
         assert!(rows
             .iter()
@@ -688,9 +721,23 @@ mod serial_display_tests {
     #[test]
     fn serial_rows_show_device_and_framing_instead_of_ssh_defaults() {
         for (device, baud, bits, parity, stops, expected) in [
-            ("/dev/ttyUSB0", 115200, 8, "none", 1, "/dev/ttyUSB0 · 115200 baud · 8N1"),
+            (
+                "/dev/ttyUSB0",
+                115200,
+                8,
+                "none",
+                1,
+                "/dev/ttyUSB0 · 115200 baud · 8N1",
+            ),
             ("COM3", 9600, 7, "even", 2, "COM3 · 9600 baud · 7E2"),
-            ("/dev/ttyS0", 57600, 8, "odd", 1, "/dev/ttyS0 · 57600 baud · 8O1"),
+            (
+                "/dev/ttyS0",
+                57600,
+                8,
+                "odd",
+                1,
+                "/dev/ttyS0 · 57600 baud · 8O1",
+            ),
         ] {
             let mut session = Session::new_empty();
             session.kind = SessionKind::Serial;
@@ -699,7 +746,7 @@ mod serial_display_tests {
             session.data_bits = bits;
             session.parity = parity.into();
             session.stop_bits = stops;
-            let rows = build_session_rows(&[session], &[], None, &[], "");
+            let rows = build_session_rows(&[session], &[], None, &[], "", false);
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0].serial_detail.as_str(), expected);
         }
@@ -713,12 +760,38 @@ mod serial_display_tests {
             session.host = "example.com".into();
             session.port = 2222;
             session.user = "alice".into();
-            let rows = build_session_rows(&[session], &[], None, &[], "");
+            let rows = build_session_rows(&[session], &[], None, &[], "", false);
             assert!(rows[0].serial_detail.is_empty());
             assert_eq!(rows[0].host.as_str(), "example.com");
             assert_eq!(rows[0].port, 2222);
             assert_eq!(rows[0].user.as_str(), "alice");
         }
+    }
+
+    #[test]
+    fn hidden_identity_masks_ssh_labels_and_leaves_serial_alone() {
+        let mut ssh = Session::new_empty();
+        ssh.kind = SessionKind::Ssh;
+        ssh.name = "alice@10.0.0.8".into();
+        ssh.host = "10.0.0.8".into();
+        ssh.port = 22;
+        ssh.user = "alice".into();
+        let mut serial = Session::new_empty();
+        serial.kind = SessionKind::Serial;
+        serial.serial_port = "COM3".into();
+        serial.name = "console".into();
+        let rows = build_session_rows(&[ssh, serial], &[], Some(&[]), &[], "", true);
+        let ssh_row = rows.iter().find(|row| row.host.as_str() == "****").unwrap();
+        assert_eq!(ssh_row.user.as_str(), "****");
+        assert_eq!(ssh_row.port, 0, "the list must not keep the real port");
+        assert!(!ssh_row.name.contains("alice"), "{}", ssh_row.name);
+        assert!(!ssh_row.name.contains("10.0.0.8"), "{}", ssh_row.name);
+        assert!(!ssh_row.name.contains(':'), "{}", ssh_row.name);
+        let serial_row = rows
+            .iter()
+            .find(|row| row.name.as_str() == "console")
+            .unwrap();
+        assert!(serial_row.serial_detail.contains("COM3"));
     }
 }
 

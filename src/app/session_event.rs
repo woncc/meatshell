@@ -73,7 +73,8 @@ pub(super) fn apply_session_event_to_window(
 
     match event {
         SessionEvent::Status(status) => {
-            update_terminal(&|t| t.status = status.clone().into());
+            let hide = win.get_hide_ssh_identity();
+            update_terminal(&|t| write_terminal_status(t, hide, &status));
         }
         SessionEvent::Output(chunk) => {
             // Synthetic Output (disconnect hint, editor error, …) — rare, already
@@ -83,7 +84,9 @@ pub(super) fn apply_session_event_to_window(
         }
         SessionEvent::Connected => {
             update_tab(&|t| t.connected = true);
-            update_terminal(&|t| t.status = crate::i18n::t("已连接", "Connected").into());
+            let hide = win.get_hide_ssh_identity();
+            let connected = crate::i18n::t("已连接", "Connected");
+            update_terminal(&|t| write_terminal_status(t, hide, connected));
             if let Some(st) = statuses.lock().unwrap().get_mut(tab_id) {
                 st.state = 1;
             }
@@ -127,9 +130,9 @@ pub(super) fn apply_session_event_to_window(
                 local_net_hist,
             );
             update_tab(&|t| t.connected = false);
-            update_terminal(&|t| {
-                t.status = format!("{} — {reason}", crate::i18n::t("已断开", "Disconnected")).into()
-            });
+            let hide = win.get_hide_ssh_identity();
+            let disconnected = format!("{} — {reason}", crate::i18n::t("已断开", "Disconnected"));
+            update_terminal(&|t| write_terminal_status(t, hide, &disconnected));
             if let Some(st) = statuses.lock().unwrap().get_mut(tab_id) {
                 st.state = 2;
             }
@@ -141,6 +144,7 @@ pub(super) fn apply_session_event_to_window(
         }
         SessionEvent::ResourceStats {
             cpu_percent,
+            load1,
             mem_used_kib,
             mem_total_kib,
             swap_used_kib,
@@ -153,6 +157,11 @@ pub(super) fn apply_session_event_to_window(
         } => {
             if let Some(st) = statuses.lock().unwrap().get_mut(tab_id) {
                 st.cpu = cpu_percent;
+                // The one-shot system-info probe shares this event and does not
+                // sample loadavg. Don't let that probe wipe a live value.
+                if sys.is_none() || load1.is_some() {
+                    st.load1 = load1;
+                }
                 st.mem_used_kib = mem_used_kib;
                 st.mem_total_kib = mem_total_kib;
                 st.swap_used_kib = swap_used_kib;
@@ -168,7 +177,7 @@ pub(super) fn apply_session_event_to_window(
                 }
                 // Append the selected interface's total rate to its sparkline.
                 let (_, rx, tx) = selected_iface(st);
-                push_ring(&mut st.net_hist, (rx + tx) as f32);
+                push_rate(&mut st.net_hist, rx as f32, tx as f32);
             }
             if win.get_active_tab_id().as_str() == tab_id
                 && (sidebar_updates_visible(win) || win.get_system_info_window_open())
