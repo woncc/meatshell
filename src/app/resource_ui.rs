@@ -277,7 +277,7 @@ mod net_history_tests {
     fn latency_mode_does_not_reserve_unused_vertical_space() {
         let src = include_str!("../../ui/sidebar.slint");
         let start = src
-            .find("if root.latency-mode : VerticalLayout {")
+            .find("if root.show-local-metric && root.latency-mode : VerticalLayout {")
             .expect("latency layout");
         let rest = &src[start..];
         let end = rest.find("component DiskBlock").expect("disk block");

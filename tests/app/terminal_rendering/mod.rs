@@ -255,6 +255,9 @@ fn leaving_alternate_screen_after_shrinking_keeps_cursor_in_bounds() {
         parser.process(b"\x1b[?1049l");
         parser.process("x\u{4e2d}".as_bytes());
         let (row, col) = parser.screen().cursor_position();
-        assert!(row < rows && col <= cols, "cursor {row},{col} outside {rows}x{cols}");
+        assert!(
+            row < rows && col <= cols,
+            "cursor {row},{col} outside {rows}x{cols}"
+        );
     }
 }
