@@ -415,10 +415,6 @@ export component InterfacePanel inherits Rectangle {
     in-out property <bool> welcome-as-sidebar;
     in-out property <bool> quick-commands-as-sidebar;
     in-out property <bool> update-check-enabled;
-    in-out property <bool> mcp-enabled: true;
-    in-out property <bool> mcp-use-saved-credentials: true;
-    in-out property <bool> mcp-allow-commands: true;
-    in-out property <bool> mcp-allow-file-transfers: true;
     in-out property <float> wallpaper-overlay;   // frosted-panel opacity 0.30-1.00
     // Active wallpaper id: "" / "builtin:light" / "builtin:dark" / a file path.
     in property <string> current-wallpaper;
@@ -478,7 +474,6 @@ export component InterfacePanel inherits Rectangle {
     callback set-welcome-as-sidebar(bool);
     callback set-quick-commands-as-sidebar(bool);
     callback set-update-check-enabled(bool);   // startup new-version check (#184)
-    callback set-mcp-permissions(bool, bool, bool, bool);
     callback persist-wallpaper-overlay(float);   // save the overlay opacity
     callback set-wallpaper(string);    // none / builtin selection
     callback pick-wallpaper-file();    // open the OS file dialog (Rust)
@@ -566,11 +561,6 @@ export component InterfacePanel inherits Rectangle {
                     icon: "\u{E873}"; label: root.lang-en ? "Session log" : "会话日志";
                     active: root.ifd-page == "session-log";
                     clicked => { root.ifd-page = "session-log"; }
-                }
-                NavItem {
-                    icon: "\u{E335}"; label: "MCP";
-                    active: root.ifd-page == "mcp";
-                    clicked => { root.ifd-page = "mcp"; }
                 }
                 NavItem {
                     icon: "\u{E923}"; label: root.lang-en ? "Update check" : "新版本提示";
@@ -1722,89 +1712,6 @@ export component InterfacePanel inherits Rectangle {
                     font-size: 11px * Theme.panel-font;
                     color: Theme.text-muted;
                     wrap: word-wrap;
-                }
-            }
-
-            // --- MCP page ----------------------------------------------
-            if root.ifd-page == "mcp" : VerticalLayout {
-                padding-left: 20px;
-                padding-right: 20px;
-                padding-top: 14px;
-                spacing: 0;
-                alignment: start;
-                SectionHeader { text: "MODEL CONTEXT PROTOCOL"; height: 24px; }
-                SettingRow {
-                    label: root.lang-en ? "Enable MCP server" : "启用 MCP 服务";
-                    desc: root.lang-en
-                        ? "Allows local MCP clients to start meatshell mcp serve over stdio."
-                        : "允许本机 MCP 客户端通过 meatshell mcp serve 启动 stdio 服务。";
-                    Switch {
-                        on: root.mcp-enabled;
-                        toggled(v) => {
-                            root.mcp-enabled = v;
-                            root.set-mcp-permissions(v, root.mcp-use-saved-credentials, root.mcp-allow-commands, root.mcp-allow-file-transfers);
-                        }
-                    }
-                }
-                SettingRow {
-                    label: root.lang-en ? "Use saved credentials" : "使用已保存凭据";
-                    desc: root.lang-en
-                        ? "MCP may authenticate with saved passwords and private keys, but can never read them."
-                        : "MCP 可以使用已保存的密码和私钥完成认证，但永远不能读取其内容。";
-                    Switch {
-                        on: root.mcp-use-saved-credentials;
-                        toggled(v) => {
-                            root.mcp-use-saved-credentials = v;
-                            root.set-mcp-permissions(root.mcp-enabled, v, root.mcp-allow-commands, root.mcp-allow-file-transfers);
-                        }
-                    }
-                }
-                SettingRow {
-                    label: root.lang-en ? "Allow arbitrary SSH commands" : "允许任意 SSH 命令";
-                    desc: root.lang-en
-                        ? "Preview setting: permits run_command on saved SSH sessions."
-                        : "预览阶段设置：允许对已保存的 SSH 会话调用 run_command。";
-                    show-divider: false;
-                    Switch {
-                        on: root.mcp-allow-commands;
-                        toggled(v) => {
-                            root.mcp-allow-commands = v;
-                            root.set-mcp-permissions(root.mcp-enabled, root.mcp-use-saved-credentials, v, root.mcp-allow-file-transfers);
-                        }
-                    }
-                }
-                SettingRow {
-                    label: root.lang-en ? "Allow file transfers" : "允许文件传输";
-                    desc: root.lang-en
-                        ? "Permits MCP uploads from local paths and downloads to local directories."
-                        : "允许 MCP 从本地路径上传文件，以及将远程文件下载到本地目录。";
-                    show-divider: false;
-                    Switch {
-                        on: root.mcp-allow-file-transfers;
-                        toggled(v) => {
-                            root.mcp-allow-file-transfers = v;
-                            root.set-mcp-permissions(root.mcp-enabled, root.mcp-use-saved-credentials, root.mcp-allow-commands, v);
-                        }
-                    }
-                }
-                // Per-session MCP scope lives in the session editor (#432).
-                Rectangle { height: 10px; }
-                Text {
-                    text: root.lang-en
-                        ? "To keep a server manual-only, untick \"Allow MCP access to this session\" in its session editor."
-                        : "如需某台服务器仅供手动使用，请在其会话编辑窗口中取消勾选“允许 MCP 访问此会话”。";
-                    color: Theme.text-muted;
-                    font-size: 11px * Theme.panel-font;
-                    wrap: word-wrap;
-                }
-                Rectangle { height: 18px; }
-                Text {
-                    text: root.lang-en
-                        ? "Command: meatshell mcp serve\nTransport: stdio (local process only)"
-                        : "启动命令：meatshell mcp serve\n传输方式：stdio（仅本机进程）";
-                    color: Theme.text-muted;
-                    font-family: Theme.term-font-family;
-                    font-size: 12px * Theme.panel-font;
                 }
             }
 

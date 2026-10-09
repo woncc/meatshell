@@ -7,64 +7,59 @@ mod allocator;
 
 #[global_allocator]
 static GLOBAL: allocator::Allocator = allocator::Allocator;
-#[cfg(not(feature = "headless"))]
+
 mod app;
-mod automation;
-mod cli;
 mod config;
 mod i18n;
-#[cfg(not(feature = "headless"))]
 mod layout;
 mod logging;
-#[cfg(any(test, not(feature = "headless")))]
-mod session_test;
-mod mcp;
-#[cfg(not(feature = "headless"))]
 mod rdp;
-#[cfg(not(feature = "headless"))]
 mod resource;
-#[cfg(not(feature = "headless"))]
 mod session;
+mod session_test;
 mod sftp;
 mod ssh;
-#[cfg(not(feature = "headless"))]
-mod terminal;
-#[cfg(feature = "headless")]
-#[path = "terminal/headless.rs"]
 mod terminal;
 mod tunnel;
-#[cfg(not(feature = "headless"))]
 mod ui;
-#[cfg(not(feature = "headless"))]
 mod wallpaper;
-#[cfg(not(feature = "headless"))]
 mod webdav;
 
+const MCP_REMOVED: &str = "MCP has been removed from this build";
+const CLI_REMOVED: &str = "CLI has been removed from this build";
+
 enum StartMode {
-    Mcp,
-    Cli,
     App,
     Version,
 }
 
 impl StartMode {
     fn detect(args: &[String]) -> Self {
-        match args.get(1).map(String::as_str) {
-            Some("mcp") if args.get(2).is_some_and(|arg| arg == "serve") => Self::Mcp,
-            Some("cli") => Self::Cli,
-            _ if args.iter().any(|arg| arg == "--version" || arg == "-V") => Self::Version,
-            _ => Self::App,
+        if args.iter().any(|arg| arg == "--version" || arg == "-V") {
+            Self::Version
+        } else {
+            Self::App
         }
+    }
+}
+
+/// Old `mcp` / `cli` invocations must not fall through into the desktop window.
+/// `configure_profile` strips `--data-dir` first, so the subcommand is `args[1]`.
+fn removed_frontend_message(args: &[String]) -> Option<&'static str> {
+    match args.get(1).map(String::as_str) {
+        Some("mcp") => Some(MCP_REMOVED),
+        Some("cli") => Some(CLI_REMOVED),
+        _ => None,
     }
 }
 
 fn main() -> anyhow::Result<()> {
     let mut args: Vec<String> = std::env::args().collect();
-    if args.iter().any(|arg| arg == "--http-config") {
-        anyhow::ensure!(args.iter().any(|arg| arg == "--data-dir") || std::env::var_os("MEATSHELL_DATA_DIR").is_some(),
-            "HTTP service requires an explicitly selected --data-dir or MEATSHELL_DATA_DIR profile");
-    }
     config::configure_profile(&mut args)?;
+    if let Some(message) = removed_frontend_message(&args) {
+        eprintln!("{message}");
+        std::process::exit(1);
+    }
     if args.iter().any(|arg| arg == "--config-info") {
         let store = config::ConfigStore::load()?;
         println!(
@@ -87,51 +82,39 @@ fn main() -> anyhow::Result<()> {
 
     init_tracing();
 
-    match mode {
-        StartMode::Mcp => mcp::run(&args),
-        StartMode::Cli => cli::run(&args),
-        #[cfg(feature = "headless")]
-        StartMode::App => {
-            anyhow::bail!("headless build: use meatshell cli help or meatshell mcp serve")
-        }
-        #[cfg(not(feature = "headless"))]
-        StartMode::App => {
-            // macOS defaults to Slint's CPU renderer. FemtoVG and Skia remain available
-            // in Settings -> Interface -> Rendering for users who prefer GPU rendering.
-            //
-            // History: 0.4.10 force-set SLINT_BACKEND=winit-skia to work around femtovg's
-            // CoreText font lookup failing on macOS 26 / Tahoe (all text vanished, #108).
-            // That fix shipped without on-device verification and turned out to *break* a
-            // different set of Macs (Apple Silicon M5 / 26.5): Skia couldn't resolve the
-            // "PingFang SC" UI font and all text vanished there instead (#129). Icons
-            // survived in both cases because Material Icons is an embedded font.
-            //
-            // Neither GPU renderer works for every macOS machine, so software rendering
-            // is the compatibility default. Users can select FemtoVG or Skia under
-            // Settings -> Interface -> Rendering. The
-            // SLINT_BACKEND=winit-skia diagnostic override remains available and takes
-            // precedence over the saved setting. The renderer-skia feature is compiled in
-            // on macOS (see Cargo.toml), so switching does not require a rebuild.
+    // macOS defaults to Slint's CPU renderer. FemtoVG and Skia remain available
+    // in Settings -> Interface -> Rendering for users who prefer GPU rendering.
+    //
+    // History: 0.4.10 force-set SLINT_BACKEND=winit-skia to work around femtovg's
+    // CoreText font lookup failing on macOS 26 / Tahoe (all text vanished, #108).
+    // That fix shipped without on-device verification and turned out to *break* a
+    // different set of Macs (Apple Silicon M5 / 26.5): Skia couldn't resolve the
+    // "PingFang SC" UI font and all text vanished there instead (#129). Icons
+    // survived in both cases because Material Icons is an embedded font.
+    //
+    // Neither GPU renderer works for every macOS machine, so software rendering
+    // is the compatibility default. Users can select FemtoVG or Skia under
+    // Settings -> Interface -> Rendering. The
+    // SLINT_BACKEND=winit-skia diagnostic override remains available and takes
+    // precedence over the saved setting. The renderer-skia feature is compiled in
+    // on macOS (see Cargo.toml), so switching does not require a rebuild.
 
-            // ── IME policy ───────────────────────────────────────────────────────────
-            // NOTE: We deliberately DO **NOT** call `ImmDisableIME` here.
-            //
-            // An earlier version disabled the IME for the whole Slint event-loop thread
-            // to work around a vim `:q!` glitch (Chinese IMEs intercept letter keys and,
-            // on a Shift press, discard the in-flight pinyin).  But disabling the IME
-            // also makes 中文输入 completely impossible — there is no composition window
-            // at all, which is exactly the "无法输入任何中文" bug.
-            //
-            // Chinese input now flows through the hidden `ime-input` TextInput in
-            // terminal_view.slint: composition happens there, and committed text is
-            // forwarded to the PTY via the `edited` callback.  The vim/Shift side-effects
-            // are handled instead by the C0-marker + 3-layer Backspace filters in
-            // `app::on_send_key`, so we no longer need (and must not use) ImmDisableIME.
-            let intent = app::launch::parse(&args);
-            app::run(intent)
-        }
-        StartMode::Version => unreachable!("handled above"),
-    }
+    // ── IME policy ───────────────────────────────────────────────────────────
+    // NOTE: We deliberately DO **NOT** call `ImmDisableIME` here.
+    //
+    // An earlier version disabled the IME for the whole Slint event-loop thread
+    // to work around a vim `:q!` glitch (Chinese IMEs intercept letter keys and,
+    // on a Shift press, discard the in-flight pinyin).  But disabling the IME
+    // also makes 中文输入 completely impossible — there is no composition window
+    // at all, which is exactly the "无法输入任何中文" bug.
+    //
+    // Chinese input now flows through the hidden `ime-input` TextInput in
+    // terminal_view.slint: composition happens there, and committed text is
+    // forwarded to the PTY via the `edited` callback.  The vim/Shift side-effects
+    // are handled instead by the C0-marker + 3-layer Backspace filters in
+    // `app::on_send_key`, so we no longer need (and must not use) ImmDisableIME.
+    let intent = app::launch::parse(&args);
+    app::run(intent)
 }
 
 /// Set up tracing: stderr (honours RUST_LOG, default info) **plus** a capped
@@ -186,26 +169,56 @@ fn init_tracing() {
 mod tests {
     use super::*;
 
+    fn argv(parts: &[&str]) -> Vec<String> {
+        parts.iter().map(|part| (*part).to_string()).collect()
+    }
+
     #[test]
-    fn detects_start_mode() {
-        let mcp = vec![
-            "meatshell".to_string(),
-            "mcp".to_string(),
-            "serve".to_string(),
-        ];
-        assert!(matches!(StartMode::detect(&mcp), StartMode::Mcp));
-
-        let cli = vec![
-            "meatshell".to_string(),
-            "cli".to_string(),
-            "sessions".to_string(),
-        ];
-        assert!(matches!(StartMode::detect(&cli), StartMode::Cli));
-
-        let version = vec!["meatshell".to_string(), "--version".to_string()];
-        assert!(matches!(StartMode::detect(&version), StartMode::Version));
-
-        let app = vec!["meatshell".to_string()];
-        assert!(matches!(StartMode::detect(&app), StartMode::App));
+    fn removed_frontends_do_not_select_the_gui() {
+        assert_eq!(
+            removed_frontend_message(&argv(&["meatshell", "mcp", "serve"])),
+            Some(MCP_REMOVED)
+        );
+        assert_eq!(
+            removed_frontend_message(&argv(&["meatshell", "mcp"])),
+            Some(MCP_REMOVED)
+        );
+        assert_eq!(
+            removed_frontend_message(&argv(&[
+                "meatshell",
+                "mcp",
+                "serve",
+                "--http-config",
+                "http.json",
+            ])),
+            Some(MCP_REMOVED)
+        );
+        assert_eq!(
+            removed_frontend_message(&argv(&["meatshell", "cli"])),
+            Some(CLI_REMOVED)
+        );
+        assert_eq!(
+            removed_frontend_message(&argv(&["meatshell", "cli", "sessions"])),
+            Some(CLI_REMOVED)
+        );
+        assert_eq!(
+            removed_frontend_message(&argv(&["meatshell", "cli", "exec", "target"])),
+            Some(CLI_REMOVED)
+        );
+        assert!(removed_frontend_message(&argv(&["meatshell"])).is_none());
+        assert!(removed_frontend_message(&argv(&["meatshell", "--config-info"])).is_none());
+        assert!(removed_frontend_message(&argv(&["meatshell", "--version"])).is_none());
+        assert!(matches!(
+            StartMode::detect(&argv(&["meatshell"])),
+            StartMode::App
+        ));
+        assert!(matches!(
+            StartMode::detect(&argv(&["meatshell", "--version"])),
+            StartMode::Version
+        ));
+        assert!(matches!(
+            StartMode::detect(&argv(&["meatshell", "-V"])),
+            StartMode::Version
+        ));
     }
 }

@@ -160,22 +160,21 @@ fn intra_batch_duplicates_are_skipped_and_references_use_the_kept_session() {
 }
 
 #[test]
-fn native_import_preserves_destination_settings_and_existing_records() {
+fn extra_legacy_keys_in_import_file_are_ignored() {
     let mut store = temp_store();
     store.cache.wallpaper = "synthetic-destination-wallpaper".into();
     store.cache.groups = vec!["Existing Group".into()];
-    store.cache.mcp_enabled = false;
-    store.cache.mcp_allow_commands = false;
     store.cache.webdav_password = Secret::new("existing-synthetic-webdav-secret");
     store.cache.sessions.push(session("existing"));
     let before = snapshot(&store);
-    // Native global settings are ignored even if their types/credentials are not
-    // valid for this destination. Only the sessions field is read.
+    // Global settings and removed MCP keys are not applied. Only sessions are read.
     let raw = serde_json::json!({
         "sessions": [session("new")],
         "wallpaper": 42,
         "mcp_enabled": true,
+        "mcp_use_saved_credentials": false,
         "mcp_allow_commands": true,
+        "mcp_allow_file_transfers": false,
         "groups": ["Replacement Group"],
         "webdav_password": "enc:v1:foreign-global-secret"
     })
@@ -184,7 +183,54 @@ fn native_import_preserves_destination_settings_and_existing_records() {
     let mut after = snapshot(&store);
     after["sessions"] = before["sessions"].clone();
     assert_eq!(after, before);
+    let saved = serde_json::to_string(&store.cache).unwrap();
+    for key in [
+        "mcp_enabled",
+        "mcp_use_saved_credentials",
+        "mcp_allow_commands",
+        "mcp_allow_file_transfers",
+        "mcp_access",
+    ] {
+        assert!(
+            !saved.contains(key),
+            "{key} was written from the import file"
+        );
+    }
     remove_fixture(&store);
+}
+
+#[test]
+fn legacy_mcp_keys_load_and_disappear_on_save() {
+    let mut session_json = serde_json::to_value(session("legacy")).unwrap();
+    session_json["mcp_access"] = serde_json::json!(false);
+    let loaded_session: Session = serde_json::from_value(session_json).unwrap();
+    let saved_session = serde_json::to_value(&loaded_session).unwrap();
+    assert!(saved_session.get("mcp_access").is_none());
+
+    let raw = serde_json::json!({
+        "mcp_enabled": true,
+        "mcp_use_saved_credentials": false,
+        "mcp_allow_commands": true,
+        "mcp_allow_file_transfers": false,
+        "sessions": [saved_session],
+    });
+    let loaded: ConfigFile = serde_json::from_value(raw).unwrap();
+    assert_eq!(loaded.sessions.len(), 1);
+    assert_eq!(loaded.sessions[0].id, "legacy");
+    let saved = serde_json::to_value(&loaded).unwrap();
+    for key in [
+        "mcp_enabled",
+        "mcp_use_saved_credentials",
+        "mcp_allow_commands",
+        "mcp_allow_file_transfers",
+        "mcp_access",
+    ] {
+        assert!(saved.get(key).is_none(), "{key} survived ConfigFile save");
+        assert!(
+            saved["sessions"][0].get(key).is_none(),
+            "{key} survived session save"
+        );
+    }
 }
 
 #[test]

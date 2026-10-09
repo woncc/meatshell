@@ -174,11 +174,11 @@ pub fn spawn_sftp(
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
     let self_tx = cmd_tx.clone();
     let events_err = events.clone();
-    let join = runtime.spawn(crate::ssh::inherit_automation_cancellation(async move {
+    let join = runtime.spawn(async move {
         if let Err(err) = run_sftp(session, jump, cmd_rx, self_tx, events).await {
             let _ = events_err.send(SessionEvent::SftpStatus(friendly_sftp_error(&err)));
         }
-    }));
+    });
     SftpHandle {
         commands: cmd_tx,
         join,
@@ -547,8 +547,8 @@ async fn run_sftp(
         let _ = events.send(SessionEvent::SftpTreeUpdate(nodes));
     }
 
-    // Own every transfer task. Dropping/aborting the worker cancels transfers
-    // too, rather than leaving detached writes alive after an MCP cancellation.
+    // Own every transfer task. Dropping or aborting the worker cancels transfers
+    // instead of leaving detached writes running.
     let mut transfers = tokio::task::JoinSet::new();
 
     // --- Command loop -------------------------------------------------------

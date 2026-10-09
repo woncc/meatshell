@@ -20,7 +20,7 @@ pub struct RemoteEntry {
     pub gid: Option<u32>,
     pub owner: Option<String>,
     pub group: Option<String>,
-    /// Stable kind key used by the UI and automation clients.
+    /// Stable kind key used by the UI.
     pub file_type: String,
 }
 
