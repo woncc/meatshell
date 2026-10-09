@@ -527,6 +527,7 @@ pub(super) fn open_window(
     );
 
     wire_editor_window_chrome(&ctx);
+    wire_pin_on_top(&ctx);
     {
         let proc_weak = proc_win.as_weak();
         let main_weak = window.as_weak();

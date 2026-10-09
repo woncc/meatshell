@@ -343,7 +343,8 @@ pub(super) fn wire_session_callbacks(
         let registry = registry.clone();
         let gate = gate.clone();
         window.on_import_sessions(move || {
-            let Some(path) = rfd::FileDialog::new()
+            let Some(path) = DialogOwner::of_weak(&weak)
+                .file()
                 .add_filter("JSON", &["json"])
                 .pick_file()
             else {
@@ -449,7 +450,8 @@ pub(super) fn wire_session_callbacks(
                 PromptKind::Export => {
                     w.set_passphrase_open(false);
                     gate.borrow_mut().kind = PromptKind::Idle;
-                    let picked = rfd::FileDialog::new()
+                    let picked = DialogOwner::of(w.window())
+                        .file()
                         .set_file_name("meatshell-connections.json")
                         .add_filter("JSON", &["json"])
                         .save_file();
@@ -1331,8 +1333,9 @@ pub(super) fn wire_session_callbacks(
     {
         let weak = window.as_weak();
         window.on_session_dialog_pick_key(move || {
-            let mut dialog =
-                rfd::FileDialog::new().set_title(t("选择私钥文件", "Choose private key file"));
+            let mut dialog = DialogOwner::of_weak(&weak)
+                .file()
+                .set_title(t("选择私钥文件", "Choose private key file"));
             // OpenSSH's standard key names (id_ed25519, id_rsa, …) usually
             // have no extension. Extension filters hide or disable those files
             // in native pickers, so show every file on every platform (#393).
@@ -1919,7 +1922,7 @@ pub(super) fn wire_wsl_profiles(ctx: &WinCtx, sessions_model: &Rc<VecModel<Sessi
     {
         let weak = window.as_weak();
         window.on_pick_wsl_directory(move || {
-            if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+            if let Some(folder) = DialogOwner::of_weak(&weak).file().pick_folder() {
                 if let Some(w) = weak.upgrade() {
                     w.set_wsl_new_directory(folder.to_string_lossy().to_string().into());
                 }

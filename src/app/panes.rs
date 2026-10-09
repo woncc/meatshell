@@ -135,10 +135,9 @@ pub(super) fn refresh_panes(
                 h: p.h,
                 active_id: p.active.clone().into(),
                 focused: p.focused,
-                // Toolbar runs through the eye at width-184, then the Focus
-                // text button further left. 320px keeps tabs clear of that
-                // button at normal UI scale.
-                reserve_right: if top_right { 320.0 } else { 0.0 },
+                // Toolbar: six icons through the pin at width-214 (#450), then the
+                // Focus text button further left (#24).
+                reserve_right: if top_right { 350.0 } else { 0.0 },
                 tabs: ModelRc::from(Rc::new(VecModel::from(tabs))),
             }
         })
