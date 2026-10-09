@@ -40,17 +40,16 @@
         <Property Id="DiskPrompt" Value="meatshell Installation"/>
 
         <!--
-          A stdio MCP client can keep `meatshell.exe mcp serve` alive after the
-          GUI has closed. Windows cannot replace a running executable during a
-          major upgrade, so give the user an explicit Abort/Retry/Ignore prompt.
-          Retry lets them close the MCP host cleanly; Ignore closes ordinary GUI
-          windows first and, after the timeout, terminates a windowless MCP copy.
-          This is intentionally upgrade-only: a first install has no old binary.
+          Windows cannot replace a running executable during a major upgrade, so
+          give the user an explicit Abort/Retry/Ignore prompt. Retry lets them
+          close MeatShell cleanly; Ignore closes ordinary windows first and,
+          after the timeout, terminates a remaining copy. This is intentionally
+          upgrade-only: a first install has no old binary.
         -->
         <util:CloseApplication
             Id="CloseRunningMeatShellForUpgrade"
             Target="meatshell.exe"
-            Description="MeatShell or its MCP server is still running. Close MeatShell and any MCP client using it, then click Retry. Choose Ignore to close it automatically."
+            Description="MeatShell is still running. Close it, then click Retry. Choose Ignore to close it automatically."
             PromptToContinue="yes"
             CloseMessage="yes"
             ElevatedCloseMessage="yes"

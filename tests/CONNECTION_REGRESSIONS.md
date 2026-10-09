@@ -6,42 +6,28 @@ real profiles or keys. They do not prove compatibility with every remote server.
 ## Rust and lightweight UI checks
 
 ```sh
-cargo test --locked --features headless
+cargo test --locked
 cargo check --locked --bin meatshell
 ```
 
-The first command includes the production SSH/config unit tests, the editor-test
+`cargo test` includes the production SSH/config unit tests, the editor-test
 ownership model, and lightweight Slint fixtures. `ui_auth_prompts` compiles the
 production prompt queues against a minimal window and inert persistence, avoiding
 the memory cost of the full application. `ui_session_editor` renders the real
 session dialog and verifies Save while a test is pending, failed, timed out or
 successful, plus close/cancel and connection-field change notifications.
 
-The separate default-feature `cargo check` is required: headless builds exclude
-the desktop controller and do not validate its Rust/Slint integration. Desktop
-end-to-end/manual testing is still useful for platform-specific focus and fonts.
+Desktop end-to-end/manual testing is still useful for platform-specific focus and fonts.
 
 ## Loopback SSH/SFTP checks
 
 Install the test dependency `paramiko` (and its `cryptography` dependency), then:
 
-```sh
-cargo build --locked --features headless
-python tests/ssh_jump_chain_e2e.py --exe target/debug/meatshell
-python tests/ssh_jump_chain_e2e.py --exe target/debug/meatshell --stage-timeouts
-python tests/config_import_e2e.py --exe target/debug/meatshell
-```
-
-The authentication matrix includes unencrypted RSA PEM and OpenSSH keys, inline
-and file keys on either jump hop, encrypted OpenSSH keys and incorrect passphrases,
-three distinct keys, mixed password/keyboard-interactive auth, RSA-SHA256-only
-servers, commands and SFTP. It also rejects missing/cyclic routes, denied
-forwarding, and untrusted host keys without falling back to a direct connection.
-
-The slow suite deliberately stalls public-key authentication, forwarding-open,
-and the target SSH banner. Each should report its hop/stage after about 15 seconds,
-before the 30-second operation limit. To reproduce the missing stage deadlines on
-a pre-fix binary, use `--expect-unbounded-stages` instead of `--stage-timeouts`.
+The Python drivers `tests/ssh_jump_chain_e2e.py` and `tests/config_import_e2e.py`
+ran through `meatshell cli` / `meatshell mcp serve`. Those entry points were
+removed, and the scripts with them. Jump-chain rules stay covered by the Rust
+tests in `src/config/jump_chain.rs`. Import of legacy files, including removed
+MCP keys, stays covered by `src/config/impls/import_tests.rs`.
 
 Network-stage deadlines do not limit human credential/MFA entry or host-key
 confirmation. The handshake budget pauses for host-key decisions, and cancelling

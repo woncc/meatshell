@@ -17,7 +17,7 @@
 仍然有几类主人应当认真对待的风险，而且它们大多是**产品功能的默认值或文档里轻描淡写的设计**，不是藏起来的第二套逻辑：
 
 1. 便携导出 / WebDAV 同步使用写死在源码里的密钥，拿到 JSON 就能解出密码和内联私钥；代理 URL 里的口令甚至不加密。
-2. MCP 预览默认全部打开，且每个会话默认允许 MCP。进程不会自己监听，但一旦本机有客户端执行 `meatshell mcp serve`，保存的 SSH 凭据就可以被用来在远端执行任意命令。
+2. MCP 与 CLI 已从 `slim` 分支删除。旧的 `mcp` / `cli` 参数只打印一行说明并以非零状态退出，不再监听端口，也不能用已保存凭据执行命令。
 3. 桌面版启动更新检查默认开启，请求的是**上游** `yituorou/meatshell`，不是本 fork。横幅不会自动安装，但会把用户带到上游发布页。
 4. 「闭眼脱敏」只盖住界面上的字。真实主机、用户、端口仍在连接路径、配置文件、诊断日志和主机密钥对话框里。
 
@@ -64,44 +64,13 @@ WebDAV **不会**在启动时自动同步（`src/app/webdav.rs:256-260`）。用
 - 把 `proxy` 的 userinfo 拆成 `Secret`，至少与密码同一套加密。
 - 不要把内联私钥放进可移植导出，除非用户单独确认。
 
-### H2. MCP 预览默认全开，且旧会话默认对 MCP 可见
+### H2. MCP 预览默认全开（slim 分支已移除）
 
-**发生了什么。** 桌面进程**不会**在启动时调用 `mcp::run`。只有参数是 `mcp serve` 才进入 MCP（`src/main.rs:50-58`、`90-91`）。HTTP 模式还要求显式 `--http-config`，并且必须带 `--data-dir` 或 `MEATSHELL_DATA_DIR`（`src/mcp/mod.rs:15-22`、`src/main.rs:63-66`）。默认监听 `127.0.0.1:8765`（`src/mcp/impls/http.rs:46-48`）。OAuth 的 JWKS 从本地文件读，不会去拉取 IdP（`src/mcp/impls/oauth.rs:103-112`）。工具响应里的会话对象不含密码正文，只有 `has_saved_password` / `has_private_key`（`src/automation/impls/tools.rs:283-299`）。
+**状态。** 本分支已删除 MCP（stdio 与 HTTP/OAuth）、CLI、automation 层和 `headless` 构建。桌面进程不再提供这些入口，也不再因它们监听端口。`meatshell mcp ...` 与 `meatshell cli ...` 向 stderr 输出一行说明后以非零状态退出，不会打开窗口。
 
-危险在默认开关，不在「偷偷监听」：
+旧配置里的 `mcp_enabled`、`mcp_use_saved_credentials`、`mcp_allow_commands`、`mcp_allow_file_transfers` 和会话字段 `mcp_access` 仍能被读入（结构体没有 `deny_unknown_fields`），下次保存时不再写出。设置页和会话编辑框中的 MCP 控件已去掉。
 
-```19:23:src/config/struct/config_file.rs
-// Testing-stage MCP defaults. Switch these serde defaults to false before the
-// feature is promoted from preview to a stable release.
-fn default_mcp_preview_enabled() -> bool {
-    true
-}
-```
-
-下列字段都用这个默认值（`src/config/struct/config_file.rs:317-328`）：
-
-- `mcp_enabled`
-- `mcp_use_saved_credentials`
-- `mcp_allow_commands`
-- `mcp_allow_file_transfers`
-
-`Session.mcp_access` 缺省也是 `true`，旧配置没有该字段时反序列化同样为 true（`src/config/struct/session.rs:179-183`、`369`；测试 `src/automation/impls/tools.rs:390-396`）。新建会话对话框同样默认勾选（`src/app/session_callbacks.rs:166`）。
-
-因此，一旦本机 MCP 客户端（编辑器、Agent、被诱导写入的配置）执行 `meatshell mcp serve`，在用户没有改过设置的情况下，工具可以：
-
-- `list_sessions` / `get_session`：列出 host、port、user、跳板 id
-- `run_command`：用已保存口令在这些主机上执行命令（`src/automation/impls/tools.rs:241-280`）
-- `upload_file` / `download_file` / `read_remote_text_file`
-
-stdio 没有额外认证，能启动该进程并读写其 stdin/stdout 的本地主体就等于操作者。HTTP 模式有 OAuth，但绑定地址来自配置文件，代码没有强制 loopback（`src/mcp/impls/http.rs:476`）。配成 `0.0.0.0` 时服务是明文 HTTP，注释只打印 “HTTPS reverse proxy required”，并不拒绝（`src/mcp/impls/http.rs:477`）。
-
-`meatshell cli exec` 不看 MCP 开关，因为它被当成显式本地操作（`src/automation/struct/access.rs:1-6`）。这是合理的，但同一套工具对 MCP 却默认放行。
-
-**建议。**
-
-- 按源码注释，把 `default_mcp_preview_enabled` 改成 `false`，`mcp_access` 对旧会话改为默认拒绝或做一次显式迁移。
-- HTTP `bind` 仅允许 loopback，除非配置里有单独的 `allow_non_loopback`。
-- 在设置页用危险样式显示当前四个开关的真实默认值，而不是假设用户读过 `docs/REMOTE_MCP.md`。
+删除前的风险是：这些开关默认全开，本机客户端执行 `meatshell mcp serve` 就能用已保存凭据在远端执行命令、传输文件。该路径在当前分支不存在。
 
 ---
 
@@ -122,7 +91,7 @@ stdio 没有额外认证，能启动该进程并读写其 stdin/stdout 的本地
 
 横幅「下载」用系统浏览器打开 `https://github.com/yituorou/meatshell/releases/latest`（`src/app/misc_callbacks.rs:82-89`）。关于页打开 `https://github.com/yituorou/meatshell`（`src/app/misc_callbacks.rs:92-99`）。没有自动下载、没有校验和安装器。
 
-`docs/REMOTE_MCP.md:16-25` 和 `FORK_NOTES.md:80` 已经写了这件事。对 fork 主人仍然是出站与供应链问题：每次启动的桌面进程都会向 `api.github.com` 暴露客户端 IP 和 User-Agent，并且 UI 引导用户安装**另一条发布线**的二进制，从而覆盖本 fork 的改动。
+更新检查的行为见本节，以及 `FORK_NOTES.md` 的更新渠道说明。对 fork 主人仍然是出站与供应链问题：每次启动的桌面进程都会向 `api.github.com` 暴露客户端 IP 和 User-Agent，并且 UI 引导用户安装**另一条发布线**的二进制，从而覆盖本 fork 的改动。
 
 **建议。** 本 fork 构建把 URL 换成 `woncc/meatshell`，或默认 `update_check_disabled = true`，直到有自己的发布通道。不要只在文档里提醒。
 
@@ -181,11 +150,9 @@ Windows 不能把密码放在 `mstsc` 命令行。实现是把 DPAPI 密文写�
 - Debian 10 兼容任务把 `https://sh.rustup.rs` 管道给 `sh`（`.github/workflows/release.yml:389-390` 与 `481-482`）。这是官方 rustup 安装方式，仍然是远程脚本执行，且没有单独的校验和。
 - x86_64 AppImage 步骤 `wget` **continuous** 通道的 `linuxdeploy` 与插件，没有 sha256（`.github/workflows/release.yml:129-132`）。`continue-on-error: true`。一个被替换的 continuous 构建可以进入对外发布的 AppImage。该步骤只在打 `v*` 标签或手动跑 workflow 时执行。
 
-对照：Caddy 测试二进制有 sha256（`.github/workflows/remote-mcp.yml:55-58`）。`verify-published-mcp.yml:29-33` 固定了 ZIP 哈希，并 checkout 固定 commit `c81e7860…`。AUR 工作流即使配置了 `AUR_SSH_PRIVATE_KEY`，也要求 `github.repository == 'yituorou/meatshell'` 且非 prerelease（`.github/workflows/aur-publish.yml:22-25`），本 fork 不会因此推到上游 AUR。
+原先用来对照的 MCP TLS 工作流、发布包校验工作流和 AUR 发布工作流已从本分支删除。`packaging/aur/` 一并删除，避免一份校验和为 `SKIP` 的配方在本树被 `makepkg` 误用。
 
-`packaging/aur/PKGBUILD` 的 `sha256sums_*` 仍是 `SKIP`，且 `url` 指向 `yituorou/meatshell`（`packaging/aur/PKGBUILD:12`、`22-27`）。本仓库的 AUR workflow 被仓库名门禁挡住，但有人在本树直接 `makepkg` 会下载上游包且不做完整性校验。
-
-**建议。** AppImage 工具改成带版本号和 sha256 的发布物。rustup 改为 actions 已有的 `dtolnay/rust-toolchain`（同文件其他 job 已经这么用），或固定 rustup 安装脚本哈希。把 PKGBUILD 的 `SKIP` 换成真实摘要，URL 改到本 fork，或从 fork 树中删掉这份会装错上游的配方。
+**建议。** AppImage 工具改成带版本号和 sha256 的发布物。rustup 改为 actions 已有的 `dtolnay/rust-toolchain`（同文件其他 job 已经这么用），或固定 rustup 安装脚本哈希。AUR 配方已从本分支删除，不必再改 PKGBUILD。
 
 ### M8. 每次 SSH 连接都会在远端跑监控命令
 
@@ -213,11 +180,9 @@ shell 集成还会在登录后注入一段 hook，用 `fc -ln -1` 把刚执行�
 
 **建议。** 改用 CIM/Win32 API，或去掉 `-ExecutionPolicy Bypass`（`-Command` 的本地字符串通常不需要它）。
 
-### L2. `tools/build_minimax_multishot.py` 与产品无关
+### L2. `tools/build_minimax_multishot.py` 与产品无关（已删除）
 
-该脚本读取本机 ComfyUI 工作流路径并写出另一份 JSON（`tools/build_minimax_multishot.py:7-9`）。仓库内没有引用它（工作流、`build.rs`、Cargo 均未调用）。它不在 fork 差异 `87c9481..HEAD` 里，是更早带进来的文件。不构成运行时后门，但是意外内容，增加审查噪音。
-
-**建议。** 从产品仓库删除。
+该脚本与 SSH 客户端无关，已从本分支删除。
 
 ### L3. `Cargo.toml` 的 `repository` 仍是占位符
 
@@ -262,7 +227,7 @@ shell 集成还会在登录后注入一段 hook，用 `fc -ln -1` 把刚执行�
 
 `vendor/` 下的 Rust 源码未检出 `ureq`、`reqwest`、`api.github`、`telemetry`、`sentry`。这是 Slint 的本地补丁（文本布局与 macOS DisplayLink），不是第二套网络栈。未把 `vendor/` 与 crates.io 原包做逐字节 diff。
 
-应用依赖里**没有** `reqwest`。直接网络相关 crate：`ureq` 2（更新检查与 WebDAV）、`axum` 0.8 + `hyper`（MCP HTTP **入站**）、`tokio`（TCP）、`tokio-socks`、`russh` 0.49、`rmcp` 2.2.0。没有 WebSocket 客户端、没有崩溃上报 SDK。
+应用依赖里**没有** `reqwest`。直接网络相关 crate：`ureq` 2（更新检查与 WebDAV）、`tokio`（TCP）、`tokio-socks`、`russh` 0.49。没有 WebSocket 客户端、没有崩溃上报 SDK。MCP 用过的 `axum` / `hyper` / `rmcp` 已从直接依赖移除。
 
 ### 本 fork 提交（`87c9481..6459b7a`）
 
@@ -276,7 +241,7 @@ shell 集成还会在登录后注入一段 hook，用 `fc -ln -1` 把刚执行�
 
 「出站」包括产品二进制里的客户端调用，以及只在 CI 里出现的下载。DNS 没有写死解析器，也没有 DoH；主机名都交给操作系统解析器。
 
-### 产品二进制（桌面或 CLI/MCP）
+### 产品二进制（桌面）
 
 | 目的地 | 协议 | 用途 | 何时 | 代码 | 分类 |
 | --- | --- | --- | --- | --- | --- |
@@ -291,7 +256,6 @@ shell 集成还会在登录后注入一段 hook，用 `fc -ln -1` 把刚执行�
 | WebDAV URL（用户填写，无默认主机） | HTTP 或 HTTPS，`PUT`/`GET`/`MKCOL` | 上传或下载 `meatshell-connections.json` | 仅按钮。默认不启用 | `src/app/webdav.rs:185-253` | 合法，但载荷见 H1 |
 | 当前 SSH/Telnet 主机 | ICMP（系统 `ping`，一次，超时约 2 秒） | 侧栏延迟 | 本机面板切到延迟后 | `src/resource/impls/latency.rs:106-167`、`322-335` | 合法。fork 新增。不发到第三方 |
 | 端口转发目标 | 经 SSH `direct-tcpip`，或远端 `-R` | 隧道 | 规则 `auto_start` 或用户启动 | `src/tunnel/impls/forward.rs` | 合法 |
-| MCP HTTP `bind` | TCP **入站** | OAuth MCP | 仅 `mcp serve --http-config` | `src/mcp/impls/http.rs:46`、`476` | 合法入站。不是客户端外连。配置可改成非 loopback |
 | `127.0.0.1` 临时端口 | TCP | 单实例唤醒 | 启动第二进程时 | `src/app/single_instance.rs:98` | 合法，仅本机 |
 
 未发现的出站类型：WebSocket 客户端、崩溃上报、统计、CDN 拉取壁纸（壁纸是内置绘制或本地文件，`src/wallpaper/impls/wallpaper.rs:31-41`）、硬编码的公网 IP（`src/` 里的 IP 是测试夹具或 `127.0.0.1`）、对 OAuth issuer 的运行时 HTTP 请求（JWKS 是本地文件）。
@@ -302,11 +266,8 @@ shell 集成还会在登录后注入一段 hook，用 `fc -ln -1` 把刚执行�
 | --- | --- | --- | --- |
 | `https://sh.rustup.rs` | Debian 10 容器里安装 Rust | `.github/workflows/release.yml:389`、`481` | 构建期。远程脚本，见 M7 |
 | `github.com/linuxdeploy/linuxdeploy` 的 `continuous` AppImage，以及 `linuxdeploy-plugin-appimage` 的 `continuous` | 打 AppImage | `.github/workflows/release.yml:129-132` | 构建期。未固定哈希，见 M7 |
-| `github.com/caddyserver/caddy` v2.11.4 tarball | MCP TLS 回归测试 | `.github/workflows/remote-mcp.yml:56` | 构建期。sha256 已固定 |
-| `api.github.com/repos/${{ github.repository }}/releases/latest` | AUR 解析版本 | `.github/workflows/aur-publish.yml:37` | 仅当仓库是 `yituorou/meatshell` |
 | `archive.debian.org` / `deb.debian.org` | Debian 10 容器 apt | `.github/workflows/release.yml:367-370` | 构建期 |
 | `pub.freerdp.com/releases/freerdp-3.21.0.tar.xz` | Flatpak 构建 FreeRDP | `packaging/flatpak/io.github.yituorou.meatshell.yml:58` | 打包清单，不是运行时 |
-| AUR SSH 远端 | 发布 `meatshell-bin` | `.github/workflows/aur-publish.yml:49-55` | 被仓库名门禁挡住 |
 
 `github.com` 上的 `actions/checkout`、`dtolnay/rust-toolchain`、`Swatinem/rust-cache`、`softprops/action-gh-release` 是 Actions 市场步骤，只在 GitHub 托管 runner 上执行。
 
@@ -338,10 +299,9 @@ shell 集成还会在登录后注入一段 hook，用 `fc -ln -1` 把刚执行�
 
 | Crate | 能力 | 在本仓库中的用途 |
 | --- | --- | --- |
-| `russh` 0.49 / `russh-keys` / `russh-sftp` / `ssh-key` | SSH | 核心。见 L4 |
+| `russh` 0.49 / `russh-sftp` / `ssh-key` | SSH | 核心。见 L4。直接依赖 `russh-keys` 已移除，传递依赖仍可能存在 |
 | `tokio`（含 `net`） | TCP | SSH、Telnet、转发、单实例 |
 | `ureq` 2 + rustls | HTTPS 客户端 | **仅**更新检查与 WebDAV |
-| `axum` / `hyper` / `rmcp` / `jsonwebtoken` | HTTP 服务 | 仅 `mcp serve --http-config` |
 | `tokio-socks` | SOCKS5 客户端 | 用户代理 |
 | `sysinfo` 0.33 | 本机进程与资源 | 侧栏与硬件信息。不是隐蔽扫描器 |
 | `arboard` | 剪贴板 | 用户复制粘贴 |
@@ -350,7 +310,7 @@ shell 集成还会在登录后注入一段 hook，用 `fc -ln -1` 把刚执行�
 | `chacha20poly1305` / `zeroize` / `aes` / `argon2` / `des` / `md5` | 加密 | 本机秘密、PPK、FinalShell 导入。`des`+`md5` 只用于解密 FinalShell 的导出（`src/config/impls/finalshell.rs`），不用于新的存储 |
 | `base64` | 编码 | 密文、PPK、代理 Basic 认证。没有第二层解码后执行 |
 
-`Cargo.lock` 中有 `hyper`（axum 传递）和 `ureq`。没有名为 `reqwest` 的包。
+`Cargo.lock` 中有 `ureq`。没有名为 `reqwest` 的包。
 
 ---
 
@@ -358,10 +318,10 @@ shell 集成还会在登录后注入一段 hook，用 `fc -ln -1` 把刚执行�
 
 1. 本 fork 的更新 URL 改到 `woncc/meatshell`，或默认关掉启动检查（M1）。这是本仓库特有的出站。
 2. 停止用公开 `EXPORT_KEY` 保护会离开本机的密码；代理口令不要明文进 JSON（H1）。
-3. 把 MCP 四个开关和 `mcp_access` 的默认值改成关闭（H2）。源码注释已经要求在稳定发布前这样做，而 tag 已是 v0.7.7。
+3. MCP / CLI 已从 `slim` 分支删除，不再通过默认开关暴露已保存凭据（原 H2）。
 4. 删除或覆盖 Windows 临时 `.rdp`；收紧 `known_hosts` / `error.log` 权限（M3、M6）。
 5. 固定 CI 里的 linuxdeploy 与 rustup（M7）。
-6. 删除 `tools/build_minimax_multishot.py`（L2）。
+6. `tools/build_minimax_multishot.py` 已删除（L2）。
 
 ## 审查边界
 
