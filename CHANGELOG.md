@@ -3,6 +3,32 @@
 All notable changes are documented here. 本文件记录所有重要变更。
 中英对照（中文在前，English after）.
 
+v0.7.12
+
+本版合并了 7 个原项目上游提交（作者：yituorou、nilxbit、lyj404），并做了适配。(#28)
+This release merges seven commits from the original upstream project (authors: yituorou, nilxbit, lyj404), adapted for this fork. (#28)
+
+新功能 / Features
+
+- 工具栏新增窗口置顶按钮（图钉），编辑器、进程和系统信息子窗口跟随置顶；Windows 上的文件/消息对话框以主窗口为父窗口，置顶时不会被挡住（含导出口令确认后的保存框、导入、私钥选择、SFTP 上传/下载）。图钉位于睁眼/闭眼按钮左侧，「专注」仍在按钮组最左。（上游作者 yituorou）(#28)
+  New always-on-top pin in the toolbar; the editor, process and system-info windows follow it. On Windows, file and message dialogs are owned by the main window so they stay above it while pinned (including the export save dialog after the passphrase, import, private-key picker and SFTP upload/download). The pin sits left of the eye toggle and "Focus" stays left-most. (upstream author: yituorou) (#28)
+- 串口会话可从下拉框选择本机已有串口，也可手动输入。（上游作者 nilxbit）(#28)
+  Serial sessions can pick an existing local port from a dropdown, or type one in. (upstream author: nilxbit) (#28)
+- 打开命令历史时直接定位到最新一条。（上游作者 yituorou）(#28)
+  Command history opens at the newest entry. (upstream author: yituorou) (#28)
+
+修复 / Fixes
+
+- 终端库 vt100 升级到 0.16.2，修复在 nano/vim 中缩小窗口后退出导致程序崩溃。（上游作者 yituorou）(#28)
+  Upgrade vt100 to 0.16.2, fixing a crash after shrinking the window inside nano/vim and quitting. (upstream author: yituorou) (#28)
+- macOS：不再创建系统托盘，修复启动即闪退；关闭窗口时不再触发 Touch Bar 崩溃。（上游作者 yituorou）(#28)
+  macOS: no system tray, fixing a crash at launch; closing a window no longer crashes on Touch Bar Macs. (upstream author: yituorou) (#28)
+
+其他 / Other
+
+- 清理死代码和无用导入，无功能变化。（上游作者 lyj404）(#28)
+  Remove dead code and unused imports; no behaviour change. (upstream author: lyj404) (#28)
+
 v0.7.10
 
 安全 / Security
