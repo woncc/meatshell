@@ -14,13 +14,21 @@ use uuid::Uuid;
 use super::{ConfigStore, Secret, Session, SessionKind};
 
 /// Bound file reads as well as JSON parsing, including files that grow while read.
-const MAX_IMPORT_BYTES: usize = 16 * 1024 * 1024;
+const MAX_IMPORT_BYTES: usize = super::portable::MAX_EXPORT_BYTES;
 
 /// Import results deliberately contain no connection details or credentials.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct ImportSummary {
     pub added: usize,
     pub skipped: usize,
+}
+
+/// How an import file is protected. Passphrase files are not JSON.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportKind {
+    Passphrase,
+    Legacy,
+    Other,
 }
 
 #[derive(Deserialize)]
@@ -53,10 +61,10 @@ fn identity(session: &Session, sessions: &[Session]) -> Result<SessionIdentity> 
     Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(&value)?)))
 }
 
-fn read_import(path: &Path) -> Result<String> {
+fn read_import_bytes(path: &Path) -> Result<Vec<u8>> {
     let metadata = fs::metadata(path).context("failed to inspect import file")?;
     if !metadata.is_file() {
-        bail!("import source must be a regular JSON file");
+        bail!("import source must be a regular file");
     }
     if metadata.len() > MAX_IMPORT_BYTES as u64 {
         bail!("import file exceeds the 16 MiB limit");
@@ -67,7 +75,7 @@ fn read_import(path: &Path) -> Result<String> {
         .context("failed to inspect import file")?
         .is_file()
     {
-        bail!("import source must be a regular JSON file");
+        bail!("import source must be a regular file");
     }
     let mut bytes = Vec::new();
     file.take((MAX_IMPORT_BYTES + 1) as u64)
@@ -76,8 +84,28 @@ fn read_import(path: &Path) -> Result<String> {
     if bytes.len() > MAX_IMPORT_BYTES {
         bail!("import file exceeds the 16 MiB limit");
     }
-    // Do not attach UTF-8/serde errors: they can quote credential-bearing input.
-    String::from_utf8(bytes).map_err(|_| anyhow::anyhow!("import file must be UTF-8 JSON"))
+    Ok(bytes)
+}
+
+fn classify_import_bytes(bytes: &[u8]) -> ImportKind {
+    if super::portable::is_passphrase_export(bytes) {
+        return ImportKind::Passphrase;
+    }
+    if let Ok(raw) = std::str::from_utf8(bytes) {
+        if is_legacy_portable_text(raw) {
+            return ImportKind::Legacy;
+        }
+    }
+    ImportKind::Other
+}
+
+fn is_legacy_portable_text(raw: &str) -> bool {
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) {
+        if value.get("meatshell_export").and_then(|v| v.as_u64()) == Some(1) {
+            return true;
+        }
+    }
+    raw.contains(ConfigStore::LEGACY_EXPORT_PREFIX)
 }
 
 impl ConfigStore {
@@ -86,10 +114,64 @@ impl ConfigStore {
     /// Dry-run performs the same parsing/validation without saving or mutating
     /// this store. Existing sessions are never overwritten.
     pub fn import_from_preview(&mut self, path: &Path, dry_run: bool) -> Result<ImportSummary> {
-        self.import_json_preview(&read_import(path)?, dry_run)
+        Ok(self.import_path(path, None, dry_run)?.0)
+    }
+
+    pub fn classify_import_file(path: &Path) -> Result<ImportKind> {
+        Ok(classify_import_bytes(&read_import_bytes(path)?))
+    }
+
+    pub fn inspect_import_bytes(bytes: &[u8]) -> ImportKind {
+        classify_import_bytes(bytes)
+    }
+
+    /// `legacy` is true only for an old `meatshell_export: 1` / `enc:exp:v1:` file.
+    /// A passphrase file without `passphrase` returns an error and changes nothing.
+    pub fn import_path(
+        &mut self,
+        path: &Path,
+        passphrase: Option<&str>,
+        dry_run: bool,
+    ) -> Result<(ImportSummary, bool)> {
+        self.import_portable_bytes(&read_import_bytes(path)?, passphrase, dry_run)
+    }
+
+    pub fn import_portable_bytes(
+        &mut self,
+        bytes: &[u8],
+        passphrase: Option<&str>,
+        dry_run: bool,
+    ) -> Result<(ImportSummary, bool)> {
+        if bytes.len() > MAX_IMPORT_BYTES {
+            bail!("import file exceeds the 16 MiB limit");
+        }
+        if super::portable::is_passphrase_export(bytes) {
+            let Some(passphrase) = passphrase.filter(|value| !value.is_empty()) else {
+                bail!(super::portable::ERR_PASSPHRASE_REQUIRED);
+            };
+            let plain = super::portable::open_export(bytes, passphrase)?;
+            let raw = std::str::from_utf8(&plain)
+                .map_err(|_| anyhow::anyhow!(super::portable::ERR_EXPORT_AUTH))?;
+            let summary = self.import_json_preview_inner(raw, dry_run, true)?;
+            return Ok((summary, false));
+        }
+        let raw = std::str::from_utf8(bytes)
+            .map_err(|_| anyhow::anyhow!("import file must be UTF-8 JSON"))?;
+        let legacy = is_legacy_portable_text(raw);
+        let summary = self.import_json_preview(raw, dry_run)?;
+        Ok((summary, legacy))
     }
 
     pub fn import_json_preview(&mut self, raw: &str, dry_run: bool) -> Result<ImportSummary> {
+        self.import_json_preview_inner(raw, dry_run, false)
+    }
+
+    fn import_json_preview_inner(
+        &mut self,
+        raw: &str,
+        dry_run: bool,
+        passphrase_payload: bool,
+    ) -> Result<ImportSummary> {
         if raw.len() > MAX_IMPORT_BYTES {
             bail!("import file exceeds the 16 MiB limit");
         }
@@ -138,10 +220,28 @@ impl ConfigStore {
                 _ => {}
             }
             if meatshell {
-                self.decode_import_secret(&mut session.password, index, "password")?;
-                self.decode_import_secret(&mut session.private_key_inline, index, "private key")?;
-                for trigger in &mut session.triggers {
-                    self.decode_import_secret(&mut trigger.response, index, "trigger response")?;
+                if passphrase_payload {
+                    // The AEAD already authenticated these strings. A value that
+                    // happens to start with enc:v1: is literal plaintext.
+                    session.password.set_plaintext();
+                    session.private_key_inline.set_plaintext();
+                    for trigger in &mut session.triggers {
+                        trigger.response.set_plaintext();
+                    }
+                } else {
+                    self.decode_import_secret(&mut session.password, index, "password")?;
+                    self.decode_import_secret(
+                        &mut session.private_key_inline,
+                        index,
+                        "private key",
+                    )?;
+                    for trigger in &mut session.triggers {
+                        self.decode_import_secret(
+                            &mut trigger.response,
+                            index,
+                            "trigger response",
+                        )?;
+                    }
                 }
             }
         }
@@ -250,8 +350,8 @@ impl ConfigStore {
 
     fn decode_import_secret(&self, secret: &mut Secret, index: usize, field: &str) -> Result<()> {
         let value = secret.as_str();
-        let decoded = if value.starts_with(Self::EXPORT_PREFIX) {
-            Some(Self::decrypt_export(value))
+        let decoded = if value.starts_with(Self::LEGACY_EXPORT_PREFIX) {
+            Some(Self::decrypt_legacy_export(value))
         } else if value.starts_with(Self::ENC_PREFIX) {
             Some(Self::try_decrypt(&self.key, value))
         } else if value.starts_with("enc:") {

@@ -1,4 +1,5 @@
 use super::*;
+use std::io::Read;
 
 fn webdav_url(base: &str, remote_path: &str) -> Result<String> {
     let base = base.trim().trim_end_matches('/');
@@ -217,47 +218,56 @@ fn webdav_ensure_parent_dirs(agent: &ureq::Agent, url: &str, auth: Option<&str>)
     Ok(())
 }
 
-pub(super) fn webdav_put_json(
+pub(super) fn webdav_put_bytes(
     base_url: &str,
     remote_path: &str,
     username: &str,
     password: &str,
     accept_invalid_certs: bool,
-    json: String,
+    body: &[u8],
 ) -> Result<()> {
     let url = webdav_url(base_url, remote_path)?;
     let agent = webdav_agent(accept_invalid_certs);
     let auth = webdav_auth_header(username, password);
     webdav_ensure_parent_dirs(&agent, &url, auth.as_deref())?;
     let req = webdav_auth_req(
-        agent.put(&url).set("Content-Type", "application/json"),
+        agent
+            .put(&url)
+            .set("Content-Type", "application/octet-stream"),
         auth.as_deref(),
     );
-    req.send_string(&json).map(|_| ()).map_err(webdav_error)
+    req.send_bytes(body).map(|_| ()).map_err(webdav_error)
 }
 
-pub(super) fn webdav_get_json(
+pub(super) fn webdav_get_bytes(
     base_url: &str,
     remote_path: &str,
     username: &str,
     password: &str,
     accept_invalid_certs: bool,
-) -> Result<String> {
+) -> Result<Vec<u8>> {
     let url = webdav_url(base_url, remote_path)?;
     let agent = webdav_agent(accept_invalid_certs);
     let auth = webdav_auth_header(username, password);
     let req = webdav_auth_req(agent.get(&url), auth.as_deref());
+    let mut bytes = Vec::new();
     req.call()
         .map_err(webdav_error)?
-        .into_string()
-        .map_err(|e| anyhow::anyhow!("{e}"))
+        .into_reader()
+        .take((crate::config::MAX_EXPORT_BYTES as u64) + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+    if bytes.len() > crate::config::MAX_EXPORT_BYTES {
+        anyhow::bail!("import file exceeds the 16 MiB limit");
+    }
+    Ok(bytes)
 }
 
 /// WebDAV config sync (#185): settings and manual upload.
-pub(super) fn wire_webdav_upload(ctx: &WinCtx) {
+pub(super) fn wire_webdav_upload(ctx: &WinCtx, gate: &Rc<RefCell<PassphraseState>>) {
     let WinCtx { store, window, .. } = ctx;
-    // WebDAV config sync (#185): manual upload/download of the portable session
-    // export JSON. It is intentionally not automatic on startup.
+    // Manual upload/download of the passphrase-protected session export.
+    // It is intentionally not automatic on startup.
     {
         let s = store.borrow();
         window.set_webdav_enabled(s.webdav_enabled());
@@ -293,12 +303,13 @@ pub(super) fn wire_webdav_upload(ctx: &WinCtx) {
     {
         let weak = window.as_weak();
         let store = store.clone();
+        let gate = gate.clone();
         window.on_webdav_upload(move || {
             let Some(w) = weak.upgrade() else { return };
             let enabled = w.get_webdav_enabled();
             let url = w.get_webdav_url().to_string();
             let username = w.get_webdav_username().to_string();
-            let password = w.get_webdav_password().to_string();
+            let mut server_password = w.get_webdav_password().to_string();
             let remote_path = w.get_webdav_remote_path().to_string();
             let accept_invalid_certs = w.get_webdav_accept_invalid_certs();
             {
@@ -307,30 +318,51 @@ pub(super) fn wire_webdav_upload(ctx: &WinCtx) {
                     enabled,
                     url.clone(),
                     username.clone(),
-                    password.clone(),
+                    server_password.clone(),
                     remote_path.clone(),
                     accept_invalid_certs,
                 );
                 let _ = s.save();
             }
             if !enabled {
+                zeroize_secret(&mut server_password);
                 w.set_webdav_status(t("请先启用 WebDAV 同步", "enable WebDAV sync first").into());
                 return;
             }
-            let res = store.borrow().export_json().and_then(|(json, count)| {
-                webdav_put_json(
-                    &url,
-                    &remote_path,
-                    &username,
-                    &password,
-                    accept_invalid_certs,
-                    json,
-                )
-                .map(|_| count)
-            });
+            let sync_pass = gate.borrow().sync_pass.clone();
+            if sync_pass.is_empty() {
+                zeroize_secret(&mut server_password);
+                {
+                    let mut state = gate.borrow_mut();
+                    state.kind = PromptKind::WebDavUpload;
+                    state.import_path = None;
+                    state.download = None;
+                }
+                show_passphrase_dialog(&w, PromptKind::WebDavUpload);
+                return;
+            }
+            let res = store
+                .borrow()
+                .export_json(&sync_pass)
+                .and_then(|(bytes, count)| {
+                    webdav_put_bytes(
+                        &url,
+                        &remote_path,
+                        &username,
+                        &server_password,
+                        accept_invalid_certs,
+                        &bytes,
+                    )
+                    .map(|_| count)
+                });
+            zeroize_secret(&mut server_password);
             let msg = match res {
-                Ok(n) => format!("{} {}", t("已上传连接", "uploaded connections"), n),
-                Err(e) => format!("{}: {}", t("上传失败", "upload failed"), e),
+                Ok(count) => format!("{} {}", t("已上传连接", "uploaded connections"), count),
+                Err(error) => format!(
+                    "{}: {}",
+                    t("上传失败", "upload failed"),
+                    passphrase_error_text(&error.to_string())
+                ),
             };
             w.set_webdav_status(msg.into());
         });
@@ -338,7 +370,11 @@ pub(super) fn wire_webdav_upload(ctx: &WinCtx) {
 }
 
 /// WebDAV config sync (#185): manual download and import.
-pub(super) fn wire_webdav_download(ctx: &WinCtx, sessions_model: &Rc<VecModel<SessionInfo>>) {
+pub(super) fn wire_webdav_download(
+    ctx: &WinCtx,
+    sessions_model: &Rc<VecModel<SessionInfo>>,
+    gate: &Rc<RefCell<PassphraseState>>,
+) {
     let WinCtx {
         store,
         registry,
@@ -350,12 +386,13 @@ pub(super) fn wire_webdav_download(ctx: &WinCtx, sessions_model: &Rc<VecModel<Se
         let store = store.clone();
         let sessions_model = sessions_model.clone();
         let registry = registry.clone();
+        let gate = gate.clone();
         window.on_webdav_download(move || {
             let Some(w) = weak.upgrade() else { return };
             let enabled = w.get_webdav_enabled();
             let url = w.get_webdav_url().to_string();
             let username = w.get_webdav_username().to_string();
-            let password = w.get_webdav_password().to_string();
+            let mut server_password = w.get_webdav_password().to_string();
             let remote_path = w.get_webdav_remote_path().to_string();
             let accept_invalid_certs = w.get_webdav_accept_invalid_certs();
             {
@@ -364,39 +401,124 @@ pub(super) fn wire_webdav_download(ctx: &WinCtx, sessions_model: &Rc<VecModel<Se
                     enabled,
                     url.clone(),
                     username.clone(),
-                    password.clone(),
+                    server_password.clone(),
                     remote_path.clone(),
                     accept_invalid_certs,
                 );
                 let _ = s.save();
             }
             if !enabled {
+                zeroize_secret(&mut server_password);
                 w.set_webdav_status(t("请先启用 WebDAV 同步", "enable WebDAV sync first").into());
                 return;
             }
-            let res = webdav_get_json(
+            let fetched = webdav_get_bytes(
                 &url,
                 &remote_path,
                 &username,
-                &password,
+                &server_password,
                 accept_invalid_certs,
-            )
-            .and_then(|json| store.borrow_mut().import_json(&json));
-            let msg = match res {
-                Ok((added, skipped)) => {
+            );
+            zeroize_secret(&mut server_password);
+            let bytes = match fetched {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    w.set_webdav_status(
+                        format!(
+                            "{}: {}",
+                            t("下载失败", "download failed"),
+                            passphrase_error_text(&error.to_string())
+                        )
+                        .into(),
+                    );
+                    return;
+                }
+            };
+            let kind = ConfigStore::inspect_import_bytes(&bytes);
+            if kind == crate::config::ImportKind::Passphrase {
+                let sync_pass = gate.borrow().sync_pass.clone();
+                if sync_pass.is_empty() {
+                    let mut state = gate.borrow_mut();
+                    state.kind = PromptKind::WebDavDownload;
+                    state.download = Some(bytes);
+                    state.import_path = None;
+                    drop(state);
+                    show_passphrase_dialog(&w, PromptKind::WebDavDownload);
+                    return;
+                }
+                match store
+                    .borrow_mut()
+                    .import_portable_bytes(&bytes, Some(&sync_pass), false)
+                {
+                    Ok((summary, _)) => {
+                        sync_sessions_for_window(&weak, &store.borrow(), &sessions_model);
+                        registry.broadcast_config_changed();
+                        w.set_webdav_status(
+                            format!(
+                                "{} {}, {} {}",
+                                t("已导入", "imported"),
+                                summary.added,
+                                t("跳过", "skipped"),
+                                summary.skipped
+                            )
+                            .into(),
+                        );
+                    }
+                    Err(error) => {
+                        let message = error.to_string();
+                        if message == crate::config::ERR_EXPORT_AUTH {
+                            gate.borrow_mut().sync_pass = zeroize::Zeroizing::new(String::new());
+                            let mut state = gate.borrow_mut();
+                            state.kind = PromptKind::WebDavDownload;
+                            state.download = Some(bytes);
+                            drop(state);
+                            show_passphrase_dialog(&w, PromptKind::WebDavDownload);
+                            if let Some(w) = weak.upgrade() {
+                                w.set_passphrase_error(passphrase_error_text(&message).into());
+                            }
+                        } else {
+                            w.set_webdav_status(
+                                format!(
+                                    "{}: {}",
+                                    t("下载失败", "download failed"),
+                                    passphrase_error_text(&message)
+                                )
+                                .into(),
+                            );
+                        }
+                    }
+                }
+                return;
+            }
+            match store
+                .borrow_mut()
+                .import_portable_bytes(&bytes, None, false)
+            {
+                Ok((summary, legacy)) => {
                     sync_sessions_for_window(&weak, &store.borrow(), &sessions_model);
                     registry.broadcast_config_changed();
-                    format!(
+                    let mut hint = format!(
                         "{} {}, {} {}",
                         t("已导入", "imported"),
-                        added,
+                        summary.added,
                         t("跳过", "skipped"),
-                        skipped
-                    )
+                        summary.skipped
+                    );
+                    if legacy {
+                        hint.push_str(" · ");
+                        hint.push_str(legacy_reexport_note());
+                    }
+                    w.set_webdav_status(hint.into());
                 }
-                Err(e) => format!("{}: {}", t("下载失败", "download failed"), e),
-            };
-            w.set_webdav_status(msg.into());
+                Err(error) => w.set_webdav_status(
+                    format!(
+                        "{}: {}",
+                        t("下载失败", "download failed"),
+                        passphrase_error_text(&error.to_string())
+                    )
+                    .into(),
+                ),
+            }
         });
     }
 }

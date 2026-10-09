@@ -1641,6 +1641,14 @@ export component InterfacePanel inherits Rectangle {
                     }
                 }
                 Text {
+                    text: root.lang-en
+                        ? "Upload and download ask for a sync passphrase. It stays in memory for this session only and is not saved in settings."
+                        : "上传和下载会询问同步口令。口令只留在本次运行的内存中，不会写入设置。";
+                    color: Theme.text-muted;
+                    font-size: 11px * Theme.panel-font;
+                    wrap: word-wrap;
+                }
+                Text {
                     text: root.webdav-status;
                     color: Theme.text-muted;
                     font-size: 11px * Theme.panel-font;

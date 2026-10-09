@@ -5,7 +5,7 @@ pub(super) fn definitions() -> Value {
     json!([
         {
             "name": "import_sessions",
-            "description": "Preview or append sessions from a local MeatShell portable export, native JSON profile, or FinalShell export. Existing sessions/settings are preserved; duplicates are skipped. Returns counts only. Requires file-transfer permission; applying also requires server startup with --allow-config-import. Export files can contain recoverable credentials.",
+            "description": "Preview or append sessions from a legacy MeatShell export, native JSON profile, or FinalShell export. Passphrase-protected exports are refused with an error and are not imported. Existing sessions/settings are preserved; duplicates are skipped. Returns counts only. Requires file-transfer permission; applying also requires server startup with --allow-config-import. Legacy export files can contain recoverable credentials.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

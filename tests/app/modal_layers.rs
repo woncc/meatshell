@@ -430,6 +430,7 @@ fn saved_secret_reveal_flows_through_the_real_app_window() {
             Default::default(),
             Default::default(),
             Rc::new(EditorWindow::new().unwrap()),
+            Rc::new(RefCell::new(PassphraseState::new())),
         );
         ui.invoke_edit_session(saved.id.clone().into());
         let render = || {

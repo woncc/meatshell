@@ -66,6 +66,7 @@ pub(super) fn wire_session_callbacks(
     tab_routes: TabRoutes,
     tab_titles: Rc<RefCell<HashMap<String, String>>>,
     editor_win: Rc<EditorWindow>,
+    gate: Rc<RefCell<PassphraseState>>,
 ) {
     // Working set of port forwards (#56) for the session being created/edited.
     // The forward add/delete callbacks mutate it; saving reads it into
@@ -270,26 +271,20 @@ pub(super) fn wire_session_callbacks(
         });
     }
 
-    // Export all sessions to a portable JSON file (issue #46). Passwords are
-    // obfuscated with the built-in export key; host/user/port stay plaintext.
+    // Export all sessions (#26). The file dialog runs only after the passphrase
+    // is accepted, so a mismatch or a short passphrase writes nothing.
     {
         let weak = window.as_weak();
-        let store = store.clone();
+        let gate = gate.clone();
         window.on_export_sessions(move || {
-            if let Some(path) = rfd::FileDialog::new()
-                .set_file_name("meatshell-connections.json")
-                .add_filter("JSON", &["json"])
-                .save_file()
+            let Some(w) = weak.upgrade() else { return };
             {
-                let res = store.borrow().export_to(&path);
-                if let Some(w) = weak.upgrade() {
-                    let hint = match res {
-                        Ok(n) => format!("{} {}", t("已导出连接", "exported"), n),
-                        Err(e) => format!("{}: {}", t("导出失败", "export failed"), e),
-                    };
-                    w.set_ssh_import_hint(hint.into());
-                }
+                let mut state = gate.borrow_mut();
+                state.kind = PromptKind::Export;
+                state.import_path = None;
+                state.download = None;
             }
+            show_passphrase_dialog(&w, PromptKind::Export);
         });
     }
 
@@ -339,36 +334,319 @@ pub(super) fn wire_session_callbacks(
         });
     }
 
-    // Import sessions from a portable JSON file (issue #46).
+    // Import sessions (#26). Legacy files still import, with a re-export warning.
+    // Passphrase files open the prompt and import only after the whole file decrypts.
     {
         let weak = window.as_weak();
         let store = store.clone();
         let sessions_model = sessions_model.clone();
         let registry = registry.clone();
+        let gate = gate.clone();
         window.on_import_sessions(move || {
-            if let Some(path) = rfd::FileDialog::new()
+            let Some(path) = rfd::FileDialog::new()
                 .add_filter("JSON", &["json"])
                 .pick_file()
-            {
-                let res = store.borrow_mut().import_from(&path);
-                if let Some(w) = weak.upgrade() {
+            else {
+                return;
+            };
+            let kind = ConfigStore::classify_import_file(&path);
+            let Some(w) = weak.upgrade() else { return };
+            match kind {
+                Ok(crate::config::ImportKind::Passphrase) => {
+                    let mut state = gate.borrow_mut();
+                    state.kind = PromptKind::Import;
+                    state.import_path = Some(path);
+                    state.download = None;
+                    drop(state);
+                    show_passphrase_dialog(&w, PromptKind::Import);
+                }
+                Ok(kind) => {
+                    let res = store.borrow_mut().import_path(&path, None, false);
                     let hint = match res {
-                        Ok((added, skipped)) => {
+                        Ok((summary, legacy)) => {
                             sync_sessions_for_window(&weak, &store.borrow(), &sessions_model);
                             registry.broadcast_config_changed();
-                            format!(
+                            let mut hint = format!(
                                 "{} {} / {} {}",
                                 t("已导入", "imported"),
-                                added,
+                                summary.added,
                                 t("跳过重复", "skipped"),
-                                skipped
-                            )
+                                summary.skipped
+                            );
+                            if legacy || kind == crate::config::ImportKind::Legacy {
+                                hint.push_str(" · ");
+                                hint.push_str(legacy_reexport_note());
+                            }
+                            hint
                         }
-                        Err(e) => format!("{}: {}", t("导入失败", "import failed"), e),
+                        Err(e) => format!(
+                            "{}: {}",
+                            t("导入失败", "import failed"),
+                            passphrase_error_text(&e.to_string())
+                        ),
                     };
                     w.set_ssh_import_hint(hint.into());
                 }
+                Err(e) => w.set_ssh_import_hint(
+                    format!(
+                        "{}: {}",
+                        t("导入失败", "import failed"),
+                        passphrase_error_text(&e.to_string())
+                    )
+                    .into(),
+                ),
             }
+        });
+    }
+
+    {
+        let weak = window.as_weak();
+        let gate = gate.clone();
+        window.on_passphrase_cancel(move || {
+            if let Some(w) = weak.upgrade() {
+                clear_passphrase_fields(&w);
+                w.set_passphrase_error(SharedString::new());
+                w.set_passphrase_open(false);
+            }
+            let mut state = gate.borrow_mut();
+            state.kind = PromptKind::Idle;
+            state.import_path = None;
+            state.download = None;
+        });
+    }
+    {
+        let weak = window.as_weak();
+        let gate = gate.clone();
+        let store = store.clone();
+        let registry = registry.clone();
+        let sessions_model = sessions_model.clone();
+        window.on_passphrase_submit(move |first, second| {
+            let Some(w) = weak.upgrade() else { return };
+            let mut pass = first.to_string();
+            let mut confirm = second.to_string();
+            clear_passphrase_fields(&w);
+            let kind = gate.borrow().kind;
+            let policy = match kind {
+                PromptKind::Export | PromptKind::WebDavUpload => {
+                    crate::config::validate_new_passphrase(&pass, &confirm)
+                }
+                PromptKind::Import | PromptKind::WebDavDownload => {
+                    if pass.is_empty() {
+                        Err(anyhow::anyhow!(crate::config::ERR_PASSPHRASE_REQUIRED))
+                    } else {
+                        Ok(())
+                    }
+                }
+                PromptKind::Idle => Err(anyhow::anyhow!(crate::config::ERR_PASSPHRASE_REQUIRED)),
+            };
+            if let Err(error) = policy {
+                w.set_passphrase_error(passphrase_error_text(&error.to_string()).into());
+                zeroize_secret(&mut pass);
+                zeroize_secret(&mut confirm);
+                return;
+            }
+            match kind {
+                PromptKind::Export => {
+                    w.set_passphrase_open(false);
+                    gate.borrow_mut().kind = PromptKind::Idle;
+                    let picked = rfd::FileDialog::new()
+                        .set_file_name("meatshell-connections.json")
+                        .add_filter("JSON", &["json"])
+                        .save_file();
+                    if let Some(path) = picked {
+                        let res = store.borrow().export_to(&path, &pass);
+                        let hint = match res {
+                            Ok(count) => format!("{} {}", t("已导出连接", "exported"), count),
+                            Err(error) => format!(
+                                "{}: {}",
+                                t("导出失败", "export failed"),
+                                passphrase_error_text(&error.to_string())
+                            ),
+                        };
+                        if let Some(w) = weak.upgrade() {
+                            w.set_ssh_import_hint(hint.into());
+                        }
+                    }
+                }
+                PromptKind::Import => {
+                    let path = gate.borrow_mut().import_path.take();
+                    gate.borrow_mut().kind = PromptKind::Idle;
+                    let Some(path) = path else {
+                        w.set_passphrase_open(false);
+                        zeroize_secret(&mut pass);
+                        zeroize_secret(&mut confirm);
+                        return;
+                    };
+                    let res = store.borrow_mut().import_path(&path, Some(&pass), false);
+                    match res {
+                        Ok((summary, legacy)) => {
+                            w.set_passphrase_open(false);
+                            w.set_passphrase_error(SharedString::new());
+                            sync_sessions_for_window(&weak, &store.borrow(), &sessions_model);
+                            registry.broadcast_config_changed();
+                            let mut hint = format!(
+                                "{} {} / {} {}",
+                                t("已导入", "imported"),
+                                summary.added,
+                                t("跳过重复", "skipped"),
+                                summary.skipped
+                            );
+                            if legacy {
+                                hint.push_str(" · ");
+                                hint.push_str(legacy_reexport_note());
+                            }
+                            w.set_ssh_import_hint(hint.into());
+                        }
+                        Err(error) => {
+                            let message = error.to_string();
+                            if message == crate::config::ERR_EXPORT_AUTH
+                                || message == crate::config::ERR_PASSPHRASE_REQUIRED
+                            {
+                                gate.borrow_mut().kind = PromptKind::Import;
+                                gate.borrow_mut().import_path = Some(path);
+                                w.set_passphrase_error(passphrase_error_text(&message).into());
+                            } else {
+                                w.set_passphrase_open(false);
+                                w.set_ssh_import_hint(
+                                    format!(
+                                        "{}: {}",
+                                        t("导入失败", "import failed"),
+                                        passphrase_error_text(&message)
+                                    )
+                                    .into(),
+                                );
+                            }
+                        }
+                    }
+                }
+                PromptKind::WebDavUpload => {
+                    let enabled = w.get_webdav_enabled();
+                    let url = w.get_webdav_url().to_string();
+                    let username = w.get_webdav_username().to_string();
+                    let mut server_password = w.get_webdav_password().to_string();
+                    let remote_path = w.get_webdav_remote_path().to_string();
+                    let accept_invalid_certs = w.get_webdav_accept_invalid_certs();
+                    let res = if !enabled {
+                        Err(anyhow::anyhow!(t(
+                            "请先启用 WebDAV 同步",
+                            "enable WebDAV sync first"
+                        )))
+                    } else {
+                        store
+                            .borrow()
+                            .export_json(&pass)
+                            .and_then(|(bytes, count)| {
+                                webdav_put_bytes(
+                                    &url,
+                                    &remote_path,
+                                    &username,
+                                    &server_password,
+                                    accept_invalid_certs,
+                                    &bytes,
+                                )
+                                .map(|_| count)
+                            })
+                    };
+                    zeroize_secret(&mut server_password);
+                    match res {
+                        Ok(count) => {
+                            gate.borrow_mut().sync_pass = zeroize::Zeroizing::new(pass.clone());
+                            gate.borrow_mut().kind = PromptKind::Idle;
+                            w.set_passphrase_open(false);
+                            w.set_passphrase_error(SharedString::new());
+                            w.set_webdav_status(
+                                format!("{} {}", t("已上传连接", "uploaded connections"), count)
+                                    .into(),
+                            );
+                        }
+                        Err(error) => {
+                            let message = error.to_string();
+                            if message == crate::config::ERR_PASSPHRASE_TOO_SHORT
+                                || message == crate::config::ERR_PASSPHRASE_TOO_LONG
+                                || message == crate::config::ERR_PASSPHRASE_MISMATCH
+                            {
+                                w.set_passphrase_error(passphrase_error_text(&message).into());
+                            } else {
+                                gate.borrow_mut().kind = PromptKind::Idle;
+                                w.set_passphrase_open(false);
+                                w.set_webdav_status(
+                                    format!(
+                                        "{}: {}",
+                                        t("上传失败", "upload failed"),
+                                        passphrase_error_text(&message)
+                                    )
+                                    .into(),
+                                );
+                            }
+                        }
+                    }
+                }
+                PromptKind::WebDavDownload => {
+                    let bytes = gate.borrow_mut().download.clone();
+                    let Some(bytes) = bytes else {
+                        w.set_passphrase_open(false);
+                        gate.borrow_mut().kind = PromptKind::Idle;
+                        zeroize_secret(&mut pass);
+                        zeroize_secret(&mut confirm);
+                        return;
+                    };
+                    let res = store
+                        .borrow_mut()
+                        .import_portable_bytes(&bytes, Some(&pass), false);
+                    match res {
+                        Ok((summary, legacy)) => {
+                            gate.borrow_mut().sync_pass = zeroize::Zeroizing::new(pass.clone());
+                            gate.borrow_mut().kind = PromptKind::Idle;
+                            gate.borrow_mut().download = None;
+                            w.set_passphrase_open(false);
+                            w.set_passphrase_error(SharedString::new());
+                            sync_sessions_for_window(&weak, &store.borrow(), &sessions_model);
+                            registry.broadcast_config_changed();
+                            let mut hint = format!(
+                                "{} {}, {} {}",
+                                t("已导入", "imported"),
+                                summary.added,
+                                t("跳过", "skipped"),
+                                summary.skipped
+                            );
+                            if legacy {
+                                hint.push_str(" · ");
+                                hint.push_str(legacy_reexport_note());
+                            }
+                            w.set_webdav_status(hint.into());
+                        }
+                        Err(error) => {
+                            let message = error.to_string();
+                            if message == crate::config::ERR_EXPORT_AUTH
+                                || message == crate::config::ERR_PASSPHRASE_REQUIRED
+                                || message == crate::config::ERR_EXPORT_TRUNCATED
+                                || message == crate::config::ERR_EXPORT_KDF
+                                || message == crate::config::ERR_EXPORT_VERSION
+                            {
+                                gate.borrow_mut().kind = PromptKind::WebDavDownload;
+                                w.set_passphrase_error(passphrase_error_text(&message).into());
+                            } else {
+                                gate.borrow_mut().kind = PromptKind::Idle;
+                                gate.borrow_mut().download = None;
+                                w.set_passphrase_open(false);
+                                w.set_webdav_status(
+                                    format!(
+                                        "{}: {}",
+                                        t("下载失败", "download failed"),
+                                        passphrase_error_text(&message)
+                                    )
+                                    .into(),
+                                );
+                            }
+                        }
+                    }
+                }
+                PromptKind::Idle => {
+                    w.set_passphrase_open(false);
+                }
+            }
+            zeroize_secret(&mut pass);
+            zeroize_secret(&mut confirm);
         });
     }
 

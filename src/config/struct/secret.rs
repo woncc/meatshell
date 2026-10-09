@@ -31,6 +31,12 @@ impl Secret {
     pub(crate) fn is_local_ciphertext(&self) -> bool {
         self.local_ciphertext
     }
+
+    /// Treat the current bytes as the secret itself, even if they look like
+    /// `enc:v1:` ciphertext. Used when a passphrase export already unwrapped them.
+    pub(crate) fn set_plaintext(&mut self) {
+        self.local_ciphertext = false;
+    }
 }
 
 impl Drop for Secret {

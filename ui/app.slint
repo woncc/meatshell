@@ -829,6 +829,16 @@ export component AppWindow inherits Window {
     callback save-webdav-settings(bool, string, string, string, string, bool);
     callback webdav-upload();
     callback webdav-download();
+    // Export / import / WebDAV sync passphrase (#26). Not part of saved settings.
+    in-out property <bool> passphrase-open: false;
+    in-out property <string> passphrase-title;
+    in-out property <string> passphrase-message;
+    in-out property <bool> passphrase-confirming: false;
+    in-out property <string> passphrase-value;
+    in-out property <string> passphrase-confirm;
+    in-out property <string> passphrase-error;
+    callback passphrase-submit(string, string);
+    callback passphrase-cancel();
     in-out property <length> sftp-panel-height: 220px; // shared; lets Rust locate the drop zone
     in-out property <length> sftp-panel-width: 380px;  // SFTP extent when docked left/right
     in-out property <string> sftp-dock: "bottom";      // SFTP dock edge, shared across tabs
@@ -1010,6 +1020,7 @@ export component AppWindow inherits Window {
         root.batch-import-open ? ModalKind.batch-import :
         root.dialog-open ? ModalKind.session :
         root.quick-cmd-manage-open ? ModalKind.quick-commands :
+        root.passphrase-open ? ModalKind.passphrase :
         root.interface-open ? ModalKind.settings :
         root.about-open ? ModalKind.about :
         root.shortcuts-open ? ModalKind.shortcuts : ModalKind.none;
@@ -5235,6 +5246,86 @@ export component AppWindow inherits Window {
                     PrimaryButton {
                         text: root.lang-en ? "Verify" : "验证";
                         clicked => { root.mfa-submit(); }
+                    }
+                }
+            }
+        }
+    }
+
+    // Passphrase for export, import, and WebDAV sync (#26).
+    if root.passphrase-open : ModalLayer {
+        is-open: true;
+        is-mac: root.is-mac;
+        covered: root.active-modal != ModalKind.passphrase;
+        dismiss-on-backdrop: false;
+        cancel-requested => { root.passphrase-cancel(); }
+        width: 100%;
+        height: 100%;
+        background: #00000080;
+
+        Rectangle {
+            width: 440px;
+            height: pass-card.preferred-height;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: Theme.popup-bg;
+            border-radius: Theme.radius-lg;
+            border-width: 1px;
+            border-color: Theme.border-strong;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #00000080;
+            TouchArea {}
+            pass-card := VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+                Text {
+                    text: root.passphrase-title;
+                    color: Theme.text-primary;
+                    font-size: Theme.fs-xl;
+                    font-weight: 600;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: root.passphrase-message;
+                    color: Theme.text-secondary;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
+                    min-height: 32px;
+                }
+                LabeledInput {
+                    label: root.lang-en ? "Passphrase" : "口令";
+                    placeholder: root.lang-en ? "At least 8 characters" : "至少 8 个字符";
+                    password: true;
+                    value <=> root.passphrase-value;
+                    auto-focus: true;
+                    accepted => { root.passphrase-submit(root.passphrase-value, root.passphrase-confirm); }
+                    canceled => { root.passphrase-cancel(); }
+                }
+                if root.passphrase-confirming : LabeledInput {
+                    label: root.lang-en ? "Confirm passphrase" : "再次输入口令";
+                    placeholder: root.lang-en ? "Enter the passphrase again" : "再输入一次口令";
+                    password: true;
+                    value <=> root.passphrase-confirm;
+                    accepted => { root.passphrase-submit(root.passphrase-value, root.passphrase-confirm); }
+                    canceled => { root.passphrase-cancel(); }
+                }
+                Text {
+                    text: root.passphrase-error;
+                    color: Theme.danger;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
+                    min-height: 32px;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    GhostButton {
+                        text: root.lang-en ? "Cancel" : "取消";
+                        clicked => { root.passphrase-cancel(); }
+                    }
+                    PrimaryButton {
+                        text: root.lang-en ? "Confirm" : "确认";
+                        clicked => { root.passphrase-submit(root.passphrase-value, root.passphrase-confirm); }
                     }
                 }
             }

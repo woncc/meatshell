@@ -48,19 +48,24 @@ fn portable_roundtrip_remaps_both_jump_formats_and_preserves_all_other_fields() 
     target.note = "Synthetic note".into();
     target.allow_secret_reveal = true;
     source.cache.sessions = vec![target.clone(), inner, outer];
-    let (export, _) = source.export_json().unwrap();
-    assert!(export.contains("enc:exp:v1:"));
+    let (export, _) = source.export_json_for_tests("test-passphrase").unwrap();
+    let rendered = String::from_utf8_lossy(&export);
+    assert!(!rendered.contains("enc:exp:v1:"));
     for secret in [
         "synthetic-password",
         "synthetic-inline-key",
         "synthetic-trigger-response",
     ] {
-        assert!(!export.contains(secret));
+        assert!(!rendered.contains(secret));
     }
 
     let mut destination = temp_store();
     destination.key = [9; 32]; // Different local profile key, as on another machine.
-    assert_eq!(destination.import_json(&export).unwrap(), (3, 0));
+    let (summary, legacy) = destination
+        .import_portable_bytes(&export, Some("test-passphrase"), false)
+        .unwrap();
+    assert!(!legacy);
+    assert_eq!((summary.added, summary.skipped), (3, 0));
     let imported = &destination.cache.sessions;
     assert_ne!(imported[0].id, "target");
     assert_eq!(imported[0].jump_session_id, imported[1].id);
@@ -418,10 +423,20 @@ fn decoded_literal_ciphertext_prefixes_are_encrypted_on_import() {
         ..SessionTrigger::default()
     });
     source.cache.sessions.push(imported);
-    let (export, _) = source.export_json().unwrap();
+    let (export, _) = source.export_json_for_tests("test-passphrase").unwrap();
+    assert!(!String::from_utf8_lossy(&export).contains("enc:exp:v1:"));
     let mut destination = temp_store();
     destination.key = [9; 32];
-    assert_eq!(destination.import_json(&export).unwrap(), (1, 0));
+    assert_eq!(
+        destination
+            .import_portable_bytes(&export, Some("test-passphrase"), false)
+            .unwrap()
+            .0,
+        ImportSummary {
+            added: 1,
+            skipped: 0
+        }
+    );
     assert_eq!(destination.sessions()[0].password.as_str(), literal);
     let raw = fs::read_to_string(&destination.path).unwrap();
     assert!(!raw.contains(literal));
@@ -453,8 +468,10 @@ fn literal_encryption_prefix_stays_protected_across_load_and_ordinary_saves() {
     });
     let mut source = temp_store();
     source.cache.sessions.push(imported);
-    let (export, _) = source.export_json().unwrap();
-    store.import_json(&export).unwrap();
+    let (export, _) = source.export_json_for_tests("test-passphrase").unwrap();
+    store
+        .import_portable_bytes(&export, Some("test-passphrase"), false)
+        .unwrap();
     for _ in 0..2 {
         let raw = fs::read_to_string(&store.path).unwrap();
         assert!(!raw.contains(literal));
@@ -538,4 +555,35 @@ fn same_endpoint_profiles_preserve_names_auth_credentials_proxy_and_routes() {
         ids
     );
     remove_fixture(&store);
+}
+
+#[test]
+fn legacy_fixed_key_export_still_imports_and_new_files_need_a_passphrase() {
+    let mut store = temp_store();
+    let raw = r#"{"meatshell_export":1,"sessions":[{"id":"legacy","name":"legacy","host":"legacy.example.invalid","port":22,"user":"fixture","auth":"password","password":"enc:exp:v1:AAAAAAAAAAAAAAAAFeRqZmIDNa2U57LDoinkeMgDVXvorTTv3qrwXh1pSN4M7bdXvSrE"}]}"#;
+    let (summary, legacy) = store
+        .import_portable_bytes(raw.as_bytes(), None, false)
+        .unwrap();
+    assert!(legacy);
+    assert_eq!((summary.added, summary.skipped), (1, 0));
+    assert_eq!(
+        store.sessions()[0].password.as_str(),
+        "synthetic-only-password"
+    );
+    assert!(!format!("{:?}", store.sessions()[0].password).contains("synthetic-only-password"));
+
+    let mut source = temp_store();
+    source.cache.sessions.push(session("sealed"));
+    let (blob, _) = source.export_json_for_tests("test-passphrase").unwrap();
+    let path = std::env::temp_dir().join(format!("ms-sealed-{}.json", uuid::Uuid::new_v4()));
+    fs::write(&path, &blob).unwrap();
+    let kind = ConfigStore::classify_import_file(&path).unwrap();
+    assert_eq!(kind, ImportKind::Passphrase);
+    let err = store.import_from_preview(&path, true).unwrap_err();
+    assert_eq!(err.to_string(), crate::config::ERR_PASSPHRASE_REQUIRED);
+    assert!(!err.to_string().contains("test-passphrase"));
+    assert_eq!(store.sessions().len(), 1);
+    let _ = fs::remove_file(&path);
+    remove_fixture(&store);
+    remove_fixture(&source);
 }

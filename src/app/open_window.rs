@@ -177,7 +177,8 @@ pub(super) fn open_window(
     // Interface setting: collapse the sidebars by default (#78). Seed the
     wire_layout_prefs(&ctx);
 
-    wire_webdav_upload(&ctx);
+    let passphrase_gate = Rc::new(RefCell::new(PassphraseState::new()));
+    wire_webdav_upload(&ctx, &passphrase_gate);
     wire_terminal_settings(&ctx);
     wire_ui_scale_and_wallpaper(&ctx);
 
@@ -192,7 +193,7 @@ pub(super) fn open_window(
     window.set_wsl_profiles(wsl_profile_model(&store.borrow()));
     listen_for_config_changes(&ctx, &sessions_model);
     wire_wsl_profiles(&ctx, &sessions_model);
-    wire_webdav_download(&ctx, &sessions_model);
+    wire_webdav_download(&ctx, &sessions_model, &passphrase_gate);
 
     let tabs_model: Rc<VecModel<TabInfo>> = Rc::new(VecModel::default());
     let welcome_title = t("新标签页", "New tab");
@@ -648,6 +649,7 @@ pub(super) fn open_window(
         core.tab_routes.clone(),
         tab_titles.clone(),
         editor_win.clone(),
+        passphrase_gate.clone(),
     );
 
     wire_sidebar_refresh_and_theme(

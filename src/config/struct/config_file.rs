@@ -349,13 +349,12 @@ pub struct ConfigFile {
     pub dock_stacks: Vec<DockEdgeSer>,
 }
 
-/// Portable export file (issue #46): sessions with everything in plaintext
-/// **except** the password, which is encrypted with a fixed key baked into the
-/// binary so the file opens on *any* machine running meatshell.
+/// JSON body of a portable session export.
 ///
-/// Security note: a built-in key in open-source code is **obfuscation, not real
-/// security** — anyone with the source can derive it. It only stops a casual
-/// over-the-shoulder read of the file, same level as FinalShell's export.
+/// Passphrase-protected files store this JSON only inside the AEAD plaintext.
+/// The on-disk bytes start with `MSHX` and are not JSON. Legacy files from
+/// before that format are this JSON directly, with secrets obfuscated as
+/// `enc:exp:v1:`. Those files can still be imported; nothing writes them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct ExportFile {
     /// Format marker / version so the schema can evolve later.
