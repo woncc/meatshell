@@ -3,6 +3,13 @@
 All notable changes are documented here. 本文件记录所有重要变更。
 中英对照（中文在前，English after）.
 
+v0.7.10
+
+安全 / Security
+
+- 导出文件和 WebDAV 同步改为用户口令保护：用 Argon2id 从口令派生密钥，以 XChaCha20-Poly1305 加密整个文件（主机、用户名、代理信息也一并加密），不再使用源码里的固定密钥。导出时必须设置口令（至少 8 个字符，不会保存）；WebDAV 同步口令每次启动后首次同步时询问一次，只保存在内存中，不写入配置。旧版固定密钥格式的文件仍可导入，但会提示其不安全并建议重新导出，程序不再写出旧格式。MCP 导入会话工具不能导入口令保护的文件，会直接报错。(#26)
+  Exports and WebDAV sync are now protected with a user passphrase: a key is derived with Argon2id and the whole file is encrypted with XChaCha20-Poly1305 (hosts, usernames and proxy details included), replacing the fixed key embedded in the source. You must set a passphrase when exporting (at least 8 characters, never saved); the WebDAV sync passphrase is asked once per session and kept only in memory, never written to settings. Legacy fixed-key files can still be imported, with a warning recommending a fresh export, but that format is no longer written. The MCP import-sessions tool refuses passphrase-protected files with an error instead of bypassing the passphrase. (#26)
+
 v0.7.9
 
 新功能 / Features
