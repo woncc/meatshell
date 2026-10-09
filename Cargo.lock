@@ -3502,7 +3502,7 @@ checksum = "490cc448043f947bae3cbee9c203358d62dbee0db12107a74be5c30ccfd09771"
 
 [[package]]
 name = "meatshell"
-version = "0.7.11-slim.1"
+version = "0.7.12-slim.1"
 dependencies = [
  "aes",
  "anyhow",
