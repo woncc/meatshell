@@ -94,13 +94,12 @@ pub(super) fn session_groups_model(store: &ConfigStore) -> ModelRc<SharedString>
 /// de-duplicated and sorted alphabetically — feeds the new/edit dialog's serial port
 /// dropdown.
 pub(super) fn session_serial_ports_model() -> ModelRc<SharedString> {
-    let mut named : Vec<String> = Vec::new();
+    let mut named: Vec<String> = Vec::new();
 
-    let ports = serialport::available_ports()
-        .unwrap_or_else(|e| {
-            tracing::error!("No available serial ports found: {e}");
-            Vec::new()
-        });
+    let ports = serialport::available_ports().unwrap_or_else(|e| {
+        tracing::error!("No available serial ports found: {e}");
+        Vec::new()
+    });
     for p in ports {
         named.push(p.port_name);
     }
