@@ -389,6 +389,23 @@ enum ZmodemDirection {
     Upload,
 }
 
+/// Ask the UI for the `rz` file list. The picker is owned by whichever
+/// window currently shows this tab, so a pinned window cannot cover it (#28).
+async fn request_rz_upload_files(
+    events: &UnboundedSender<SessionEvent>,
+) -> Vec<std::path::PathBuf> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    if events
+        .send(SessionEvent::RzUploadPrompt {
+            responder: RzFileResponder::new(tx),
+        })
+        .is_err()
+    {
+        return Vec::new();
+    }
+    rx.await.unwrap_or_default()
+}
+
 /// Identify the first hex ZMODEM handshake by its actual frame type. Remote
 /// `sz` starts with ZRQINIT (`00`), while remote `rz` starts with ZRINIT (`01`).
 /// Treating both as a receive operation made `rz` deadlock because each side
@@ -1887,17 +1904,7 @@ async fn run_session(
                                         .await
                                 }
                                 ZmodemDirection::Upload => {
-                                    let files = tokio::task::spawn_blocking(|| {
-                                        rfd::FileDialog::new()
-                                            .set_title(t(
-                                                "选择要通过 rz 上传的文件",
-                                                "Choose files to upload via rz",
-                                            ))
-                                            .pick_files()
-                                            .unwrap_or_default()
-                                    })
-                                    .await
-                                    .unwrap_or_default();
+                                    let files = request_rz_upload_files(&events).await;
                                     if files.is_empty() {
                                         let _ = channel.data(&ZMODEM_CANCEL[..]).await;
                                         let _ = events.send(SessionEvent::Output(format!(
@@ -3196,7 +3203,8 @@ mod prompt_setup_echo_tests {
 
 #[cfg(test)]
 mod zmodem_detection_tests {
-    use super::{zmodem_direction, ZmodemDirection};
+    use super::{request_rz_upload_files, zmodem_direction, ZmodemDirection};
+    use crate::ssh::SessionEvent;
 
     #[test]
     fn distinguishes_remote_sz_from_remote_rz() {
@@ -3208,6 +3216,34 @@ mod zmodem_detection_tests {
             zmodem_direction(b"rz waiting to receive.**\x18B0100000023be50\r\n\x11"),
             Some(ZmodemDirection::Upload)
         );
+    }
+
+    #[test]
+    fn rz_upload_asks_the_ui_instead_of_opening_an_unowned_dialog() {
+        let src = include_str!("ssh.rs");
+        let start = src.find("ZmodemDirection::Upload =>").expect("upload arm");
+        let arm = &src[start..];
+        let arm = &arm[..arm.find("if files.is_empty()").expect("cancel check")];
+        assert!(
+            !arm.contains("FileDialog::new"),
+            "rz picker must not build an unowned dialog"
+        );
+        assert!(arm.contains("request_rz_upload_files"));
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+            let task = tokio::spawn(async move { request_rz_upload_files(&tx).await });
+            let SessionEvent::RzUploadPrompt { responder } = rx.recv().await.unwrap() else {
+                panic!("rz upload did not ask the UI");
+            };
+            let fixture = std::path::PathBuf::from("fixture-rz-upload.txt");
+            responder.respond(vec![fixture.clone()]);
+            assert_eq!(task.await.unwrap(), vec![fixture]);
+        });
     }
 
     #[test]

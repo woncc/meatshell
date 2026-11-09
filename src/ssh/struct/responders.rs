@@ -88,3 +88,33 @@ impl std::fmt::Debug for MfaResponder {
         f.write_str("MfaResponder")
     }
 }
+
+/// Carries the files chosen for a remote `rz` upload back to the SSH task.
+/// The dialog itself runs on the UI side so it can use the window that
+/// currently holds the tab (#28). `Arc<Mutex<Option<…>>>` keeps
+/// [`super::SessionEvent`] `Clone`.
+#[derive(Clone)]
+pub struct RzFileResponder(
+    Arc<std::sync::Mutex<Option<tokio::sync::oneshot::Sender<Vec<std::path::PathBuf>>>>>,
+);
+
+impl RzFileResponder {
+    pub fn new(tx: tokio::sync::oneshot::Sender<Vec<std::path::PathBuf>>) -> Self {
+        Self(Arc::new(std::sync::Mutex::new(Some(tx))))
+    }
+
+    /// Deliver the selection. An empty list means the user cancelled.
+    pub fn respond(&self, files: Vec<std::path::PathBuf>) {
+        if let Ok(mut guard) = self.0.lock() {
+            if let Some(tx) = guard.take() {
+                let _ = tx.send(files);
+            }
+        }
+    }
+}
+
+impl std::fmt::Debug for RzFileResponder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RzFileResponder")
+    }
+}

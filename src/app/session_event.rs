@@ -445,6 +445,16 @@ pub(super) fn apply_session_event_to_window(
                 win.set_has_active_transfers(has_active);
             }
         }
+        SessionEvent::RzUploadPrompt { responder } => {
+            // Capture the window that holds the tab right now. The tab may
+            // have moved since connect, so the SSH task must not have kept
+            // an older handle (#28). The native dialog then runs off this
+            // thread; DialogOwner is Send and already used that way.
+            let owner = DialogOwner::of(win.window());
+            std::thread::spawn(move || {
+                responder.respond(owner.pick_rz_upload_files());
+            });
+        }
         SessionEvent::HostKeyPrompt {
             host,
             port,
