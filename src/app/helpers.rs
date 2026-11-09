@@ -169,11 +169,21 @@ impl DialogOwner {
     /// so the parent bit can be asserted without opening a dialog.
     #[cfg(test)]
     fn captured_for_test() -> Self {
+        Self::captured_hwnd_for_test(1)
+    }
+
+    /// Two calls stand in for the window that had the tab at connect and the
+    /// window that has it when `rz` is delivered. Only the delivery capture
+    /// is allowed to parent the dialog.
+    #[cfg(test)]
+    fn captured_hwnd_for_test(hwnd: isize) -> Self {
         #[cfg(windows)]
         {
             use std::num::NonZeroIsize;
             let window = raw_window_handle::RawWindowHandle::Win32(
-                raw_window_handle::Win32WindowHandle::new(NonZeroIsize::new(1).expect("nonzero")),
+                raw_window_handle::Win32WindowHandle::new(
+                    NonZeroIsize::new(hwnd).expect("nonzero"),
+                ),
             );
             let display = raw_window_handle::RawDisplayHandle::Windows(
                 raw_window_handle::WindowsDisplayHandle::new(),
@@ -184,7 +194,10 @@ impl DialogOwner {
             }
         }
         #[cfg(not(windows))]
-        Self { captured: true }
+        {
+            let _ = hwnd;
+            Self { captured: true }
+        }
     }
 
     /// Owner for a dialog opened from a window callback; unowned if the
@@ -197,8 +210,10 @@ impl DialogOwner {
 
     pub(super) fn file(&self) -> rfd::FileDialog {
         let dialog = rfd::FileDialog::new();
+        // Same predicate the tests assert. Parenting stays Windows-only so a
+        // macOS owner cannot turn the picker into a sheet.
         #[cfg(windows)]
-        if self.handles.is_some() {
+        if self.parents_native_dialog() {
             return dialog.set_parent(self);
         }
         dialog
@@ -276,6 +291,33 @@ mod dialog_owner_tests {
         );
         // Build the dialog the rz path uses. Do not show it.
         let _dialog = captured.file();
+    }
+
+    #[test]
+    fn rz_prompt_captures_the_window_that_has_the_tab_now() {
+        let at_connect = DialogOwner::default();
+        assert!(!at_connect.parent_request().captured_window);
+        assert!(!at_connect.parent_request().native_parent);
+
+        let original = DialogOwner::captured_hwnd_for_test(11);
+        let moved = DialogOwner::captured_hwnd_for_test(22);
+        assert!(original.parent_request().captured_window);
+        assert!(moved.parent_request().captured_window);
+        assert_eq!(original.parent_request().native_parent, cfg!(windows));
+        assert_eq!(moved.parent_request().native_parent, cfg!(windows));
+        #[cfg(windows)]
+        {
+            use raw_window_handle::HasWindowHandle;
+            fn hwnd(owner: &DialogOwner) -> isize {
+                match owner.window_handle().expect("parent").as_raw() {
+                    raw_window_handle::RawWindowHandle::Win32(handle) => handle.hwnd.get() as isize,
+                    other => panic!("expected a win32 parent, got {other:?}"),
+                }
+            }
+            assert_eq!(hwnd(&original), 11);
+            assert_eq!(hwnd(&moved), 22);
+        }
+        let _dialog = moved.file();
     }
 
     #[test]
