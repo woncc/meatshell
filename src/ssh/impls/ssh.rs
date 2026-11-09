@@ -389,6 +389,17 @@ enum ZmodemDirection {
     Upload,
 }
 
+/// Names shown for an `rz` upload. Only the file name leaves the local path;
+/// the directory stays on this machine (#28).
+fn rz_status_names(files: &[std::path::PathBuf]) -> String {
+    files
+        .iter()
+        .filter_map(|path| path.file_name())
+        .map(|name| name.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Ask the UI for the `rz` file list. The picker is owned by whichever
 /// window currently shows this tab, so a pinned window cannot cover it (#28).
 async fn request_rz_upload_files(
@@ -2054,12 +2065,7 @@ async fn run_session(
                                     let _ = events.send(SessionEvent::Output(format!(
                                         "\r\n[meatshell] {} {}...\r\n",
                                         t("开始上传", "Uploading"),
-                                        files
-                                            .iter()
-                                            .filter_map(|path| path.file_name())
-                                            .map(|name| name.to_string_lossy())
-                                            .collect::<Vec<_>>()
-                                            .join(", ")
+                                        rz_status_names(&files)
                                     )));
                                     crate::terminal::zmodem::send(
                                         &mut channel,
@@ -3340,7 +3346,7 @@ mod prompt_setup_echo_tests {
 
 #[cfg(test)]
 mod zmodem_detection_tests {
-    use super::{request_rz_upload_files, zmodem_direction, ZmodemDirection};
+    use super::{request_rz_upload_files, rz_status_names, zmodem_direction, ZmodemDirection};
     use crate::ssh::SessionEvent;
 
     #[test]
@@ -3380,6 +3386,95 @@ mod zmodem_detection_tests {
             let fixture = std::path::PathBuf::from("fixture-rz-upload.txt");
             responder.respond(vec![fixture.clone()]);
             assert_eq!(task.await.unwrap(), vec![fixture]);
+        });
+    }
+
+    #[test]
+    fn rz_upload_cancel_drop_isolation_and_name_privacy() {
+        let hidden = std::path::Path::new("hidden-dir").join("passport.pdf");
+        let shown = rz_status_names(std::slice::from_ref(&hidden));
+        assert_eq!(shown, "passport.pdf");
+        assert!(
+            !shown.contains("hidden-dir"),
+            "terminal status must not include the local directory"
+        );
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let (gone_tx, gone_rx) = tokio::sync::mpsc::unbounded_channel();
+            drop(gone_rx);
+            assert!(
+                request_rz_upload_files(&gone_tx).await.is_empty(),
+                "a closed UI channel cancels instead of waiting"
+            );
+
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+            let task = tokio::spawn(async move { request_rz_upload_files(&tx).await });
+            let SessionEvent::RzUploadPrompt { responder } = rx.recv().await.unwrap() else {
+                panic!("rz upload did not ask the UI");
+            };
+            let rendered = format!("{responder:?}");
+            assert!(!rendered.contains("passport"), "prompt debug leaks a path");
+            responder.respond(Vec::new());
+            responder.respond(vec![hidden.clone()]);
+            let (held_tx, held_rx) = tokio::sync::oneshot::channel();
+            let held = super::RzFileResponder::new(held_tx);
+            let held_event = SessionEvent::RzUploadPrompt {
+                responder: held.clone(),
+            };
+            held.respond(vec![hidden.clone()]);
+            assert_eq!(held_rx.await.unwrap(), vec![hidden.clone()]);
+            let rendered = format!("{held_event:?}");
+            assert!(
+                !rendered.contains("passport") && !rendered.contains("hidden-dir"),
+                "a delivered path must not be stored on the prompt event"
+            );
+            let cancelled = tokio::time::timeout(std::time::Duration::from_secs(2), task)
+                .await
+                .expect("empty reply hung the ssh task")
+                .unwrap();
+            assert!(cancelled.is_empty(), "first empty reply is the cancel");
+
+            let (tx_a, mut rx_a) = tokio::sync::mpsc::unbounded_channel();
+            let (tx_b, mut rx_b) = tokio::sync::mpsc::unbounded_channel();
+            let task_a = tokio::spawn(async move { request_rz_upload_files(&tx_a).await });
+            let task_b = tokio::spawn(async move { request_rz_upload_files(&tx_b).await });
+            let SessionEvent::RzUploadPrompt {
+                responder: responder_a,
+            } = rx_a.recv().await.unwrap()
+            else {
+                panic!("first prompt missing");
+            };
+            let SessionEvent::RzUploadPrompt {
+                responder: responder_b,
+            } = rx_b.recv().await.unwrap()
+            else {
+                panic!("second prompt missing");
+            };
+            let second = std::path::PathBuf::from("two.txt");
+            let worker_b = second.clone();
+            std::thread::spawn(move || responder_b.respond(vec![worker_b]));
+            drop(responder_a);
+            let from_a = tokio::time::timeout(std::time::Duration::from_secs(2), task_a)
+                .await
+                .expect("dropped prompt hung the ssh task")
+                .unwrap();
+            let from_b = tokio::time::timeout(std::time::Duration::from_secs(2), task_b)
+                .await
+                .expect("worker reply hung the ssh task")
+                .unwrap();
+            assert!(
+                from_a.is_empty(),
+                "dropping the prompt cancels that request"
+            );
+            assert_eq!(
+                from_b,
+                vec![second],
+                "a second request must not take the first answer"
+            );
         });
     }
 
