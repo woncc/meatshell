@@ -383,6 +383,7 @@ pub(super) fn wire_layout_prefs(ctx: &WinCtx) {
         let local_latency = s.local_panel_latency();
         window.set_local_latency_mode(local_latency);
         window.set_background_monitor(s.background_monitor());
+        window.set_keep_disconnect_scrollback(s.keep_disconnect_scrollback());
         window.set_show_local_metric(s.show_local_metric());
         window.set_local_metric_label(
             (if local_latency {
@@ -469,6 +470,14 @@ pub(super) fn wire_layout_prefs(ctx: &WinCtx) {
         window.on_set_background_monitor(move |on| {
             let mut s = store.borrow_mut();
             s.set_background_monitor(on);
+            let _ = s.save();
+        });
+    }
+    {
+        let store = store.clone();
+        window.on_set_keep_disconnect_scrollback(move |on| {
+            let mut s = store.borrow_mut();
+            s.set_keep_disconnect_scrollback(on);
             let _ = s.save();
         });
     }

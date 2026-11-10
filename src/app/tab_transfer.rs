@@ -442,6 +442,7 @@ pub(super) fn move_tab_between_windows(
                     sftp_last_cwd: dst.sftp_last_cwd.clone(),
                     follow_cd: dst.follow_cd.clone(),
                     sftp_events,
+                    conn_generation: r.conn_generation,
                 };
             }
         }

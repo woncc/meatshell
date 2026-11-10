@@ -58,7 +58,7 @@ pub(super) fn refresh_process_model(win: &AppWindow, statuses: &TabStatuses) {
 
 #[cfg(test)]
 mod activity_tests {
-    use super::dynamic_sidebar_visible;
+    use super::{dynamic_sidebar_visible, session_metrics_visible};
 
     #[test]
     fn dynamic_sidebar_updates_only_while_active_and_expanded() {
@@ -66,6 +66,15 @@ mod activity_tests {
         assert!(!dynamic_sidebar_visible(false, false));
         assert!(!dynamic_sidebar_visible(true, true));
         assert!(!dynamic_sidebar_visible(false, true));
+    }
+
+    #[test]
+    fn remote_metrics_hide_until_the_connection_is_up() {
+        assert!(session_metrics_visible(false, 0, false));
+        assert!(session_metrics_visible(true, 2, true));
+        assert!(session_metrics_visible(false, 1, true));
+        assert!(!session_metrics_visible(false, 0, true));
+        assert!(!session_metrics_visible(false, 2, true));
     }
 }
 
@@ -76,20 +85,50 @@ fn present_connection(win: &AppWindow, st: &TabStatus, label: String) {
     win.set_conn_host(conn_ip(&st.host).into());
 }
 
-/// ICMP target for the active tab. Empty unless that tab is a connected
-/// SSH or Telnet session. Disconnect (`state == 2`) is not "still that host".
-pub(super) fn active_probe_host(win: &AppWindow, statuses: &TabStatuses) -> String {
+/// Which connection the window probe should follow.
+///
+/// `host` is empty unless the active tab is a live remote session. Connecting
+/// and disconnected tabs keep their id and generation so the series stays
+/// attached, but they are not pinged. Welcome has no connection.
+pub(super) struct ProbeBinding {
+    pub(super) tab_id: String,
+    pub(super) host: String,
+    pub(super) generation: u64,
+}
+
+pub(super) fn active_probe_binding(win: &AppWindow, statuses: &TabStatuses) -> ProbeBinding {
     let active = win.get_active_tab_id().to_string();
     if active == "welcome" {
-        return String::new();
+        return ProbeBinding {
+            tab_id: active,
+            host: String::new(),
+            generation: 0,
+        };
     }
-    statuses
-        .lock()
-        .unwrap()
-        .get(&active)
-        .filter(|st| !st.is_local && st.state != 2)
-        .map(|st| st.probe_host.clone())
-        .unwrap_or_default()
+    let guard = statuses.lock().unwrap();
+    match guard.get(&active) {
+        Some(st) if !st.is_local && st.state == 1 => ProbeBinding {
+            tab_id: active,
+            host: st.probe_host.clone(),
+            generation: st.conn_generation,
+        },
+        Some(st) => ProbeBinding {
+            tab_id: active,
+            host: String::new(),
+            generation: st.conn_generation,
+        },
+        None => ProbeBinding {
+            tab_id: active,
+            host: String::new(),
+            generation: 0,
+        },
+    }
+}
+
+/// Remote resource bars and both charts. Local shells and the welcome page
+/// stay visible. A remote tab shows them only while that connection is up.
+pub(super) fn session_metrics_visible(is_local: bool, state: u8, has_tab: bool) -> bool {
+    !has_tab || is_local || state == 1
 }
 
 pub(super) fn refresh_sidebar(
@@ -132,15 +171,6 @@ pub(super) fn refresh_sidebar(
         win.set_mem_detail(format_mem(snap.mem_used_mib, snap.mem_total_mib).into());
         win.set_swap_detail(format_mem(snap.swap_used_mib, snap.swap_total_mib).into());
     };
-    let clear_stats = |win: &AppWindow| {
-        win.set_cpu_percent(0.0);
-        win.set_cpu_detail("".into());
-        win.set_mem_percent(0.0);
-        win.set_swap_percent(0.0);
-        win.set_mem_detail("".into());
-        win.set_swap_detail("".into());
-    };
-
     // Process monitor (#23) lives in a shared model (the AppWindow and the
     // detachable ProcWindow point at the same VecModel), so mutate it in place
     // instead of replacing it — replacing would break the sharing. Only a live
@@ -276,9 +306,12 @@ pub(super) fn refresh_sidebar(
     } else {
         statuses.lock().unwrap().get(&active).cloned()
     };
-    // Connected SSH/Telnet only. Disconnect, local shells, and the welcome
-    // tab clear the ICMP target instead of leaving the previous host in place.
-    let probe_host = active_probe_host(win, statuses);
+    let probe = active_probe_binding(win, statuses);
+    let metrics_visible = match status.as_ref() {
+        Some(st) => session_metrics_visible(st.is_local, st.state, true),
+        None => session_metrics_visible(false, 0, false),
+    };
+    win.set_session_metrics_visible(metrics_visible);
 
     match status {
         // Local shell tabs: keep the connection status line, but show the local
@@ -340,7 +373,8 @@ pub(super) fn refresh_sidebar(
                 st.sys.clone(),
             );
         }
-        // Disconnected / timed-out session.
+        // Disconnected / failed / remote-closed. Keep the status line and hide
+        // every chart. Do not fill the server graph with this computer's speed.
         Some(st) if st.state == 2 => {
             win.set_conn_state(2);
             present_connection(
@@ -348,9 +382,7 @@ pub(super) fn refresh_sidebar(
                 &st,
                 format!("{} {}", st.host, t("已断开", "disconnected")),
             );
-            win.set_resource_title(t("服务器资源", "Server resources").into());
-            clear_stats(win);
-            set_top_local(win);
+            clear_remote_charts(win);
             set_system_models(
                 win,
                 0.0,
@@ -372,8 +404,7 @@ pub(super) fn refresh_sidebar(
                 format!("{} {}", t("连接中", "Connecting"), st.host),
             );
             win.set_resource_title(t("服务器资源", "Server resources").into());
-            clear_stats(win);
-            set_top_local(win);
+            clear_remote_charts(win);
             set_system_models(
                 win,
                 0.0,
@@ -396,7 +427,24 @@ pub(super) fn refresh_sidebar(
             show_local_system_models(win);
         }
     }
-    apply_local_panel(win, local, local_net_hist, &snap, &probe_host);
+    apply_local_panel(win, local, local_net_hist, &snap, &probe);
+}
+
+fn clear_remote_charts(win: &AppWindow) {
+    win.set_cpu_percent(0.0);
+    win.set_cpu_detail("".into());
+    win.set_mem_percent(0.0);
+    win.set_swap_percent(0.0);
+    win.set_mem_detail("".into());
+    win.set_swap_detail("".into());
+    win.set_net_top_up("".into());
+    win.set_net_top_down("".into());
+    win.set_net_show_selector(false);
+    win.set_net_selected("".into());
+    win.set_net_ifaces(ModelRc::from(Rc::new(VecModel::<SharedString>::default())));
+    win.set_disks(disk_model(&[]));
+    win.set_proc_available(false);
+    win.set_system_info_available(false);
 }
 
 /// Lower local panel. Default is realtime upload/download. Latency mode shows
@@ -406,13 +454,15 @@ fn apply_local_panel(
     local: &LocalSnap,
     local_net_hist: &NetHist,
     snap: &SystemSnapshot,
-    probe_host: &str,
+    probe: &ProbeBinding,
 ) {
     let latency_mode = win.get_local_latency_mode();
-    // Keep this host's samples when only the view changes. A different host,
-    // or no host, replaces them inside the probe. The 1s timer owns ICMP mode
-    // so a redraw cannot force probes while hidden.
-    local.latency.set_target(probe_host);
+    // The 1s timer owns ICMP mode so a redraw cannot force probes while hidden.
+    // Binding by tab keeps the other connection's series. An empty host stops
+    // pings for a disconnected tab without deleting what it already recorded.
+    local
+        .latency
+        .bind_connection(&probe.tab_id, &probe.host, probe.generation);
     let rtt = if latency_mode {
         local.latency.latest()
     } else {

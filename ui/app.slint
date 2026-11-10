@@ -405,6 +405,9 @@ export component AppWindow inherits Window {
     // a future 通用 category can move that row without changing this property.
     in-out property <bool> background-monitor: false;
     callback set-background-monitor(bool);
+    in-out property <bool> keep-disconnect-scrollback: true;
+    callback set-keep-disconnect-scrollback(bool);
+    in-out property <bool> session-metrics-visible: true;
     // Local speed/latency block under the remote graph. Default on.
     in-out property <bool> show-local-metric: true;
     callback set-show-local-metric(bool);
@@ -1803,6 +1806,7 @@ export component AppWindow inherits Window {
                 net-down-color: root.net-down-brush;
                 local-latency-mode: root.local-latency-mode;
                 show-local-metric: root.show-local-metric;
+                session-metrics-visible: root.session-metrics-visible;
                 local-metric-label: root.local-metric-label;
                 local-latency-text: root.local-latency-text;
                 local-latency-history: root.local-latency-history;
@@ -2438,6 +2442,7 @@ export component AppWindow inherits Window {
                     net-down-color: root.net-down-brush;
                     local-latency-mode: root.local-latency-mode;
                     show-local-metric: root.show-local-metric;
+                    session-metrics-visible: root.session-metrics-visible;
                     local-metric-label: root.local-metric-label;
                     local-latency-text: root.local-latency-text;
                     local-latency-history: root.local-latency-history;
@@ -5479,6 +5484,7 @@ export component AppWindow inherits Window {
                     collapse-sidebar-default <=> root.collapse-sidebar-default;
                     local-latency-mode <=> root.local-latency-mode;
                     background-monitor <=> root.background-monitor;
+                    keep-disconnect-scrollback <=> root.keep-disconnect-scrollback;
                     show-local-metric <=> root.show-local-metric;
                     net-up-color-hex <=> root.net-up-color-hex;
                     net-down-color-hex <=> root.net-down-color-hex;
@@ -5549,6 +5555,7 @@ export component AppWindow inherits Window {
                     set-collapse-sidebar-default(v) => { root.set-collapse-sidebar-default(v); }
                     set-local-latency-mode(v) => { root.set-local-latency-mode(v); }
                     set-background-monitor(v) => { root.set-background-monitor(v); }
+                    set-keep-disconnect-scrollback(v) => { root.set-keep-disconnect-scrollback(v); }
                     set-language(v) => { root.set-language(v); }
                     open-shortcuts => { root.shortcuts-open = true; }
                     toggle-theme => { root.toggle-theme(); }

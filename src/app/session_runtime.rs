@@ -31,6 +31,32 @@ pub(super) fn should_start_sftp(session: &Session, sftp_enabled: bool) -> bool {
 /// already-registered tab. Used by the initial connect and by in-place
 /// reconnect (#79); the tab/terminal/parser must already exist.
 pub(super) fn start_session_in_tab(tab_id: &str, session: Session, ctx: &ConnectCtx) {
+    let generation = {
+        let mut statuses = ctx.tab_statuses.lock().unwrap();
+        let Some(st) = statuses.get_mut(tab_id) else {
+            return;
+        };
+        st.conn_generation = st.conn_generation.wrapping_add(1);
+        st.state = 0;
+        st.cpu = 0.0;
+        st.load1 = None;
+        st.mem_used_kib = 0;
+        st.mem_total_kib = 0;
+        st.swap_used_kib = 0;
+        st.swap_total_kib = 0;
+        st.net.clear();
+        st.net_hist = Default::default();
+        st.disks.clear();
+        st.procs.clear();
+        st.sys = Default::default();
+        st.conn_generation
+    };
+    ctx.local_snap
+        .latency
+        .bind_connection(tab_id, "", generation);
+    if let Some(old) = ctx.handles.borrow_mut().remove(tab_id) {
+        old.close();
+    }
     let sftp_enabled = ctx.store.borrow().sftp_enabled();
     let has_sftp = should_start_sftp(&session, sftp_enabled);
     sync_terminal_sftp_availability(ctx, tab_id, has_sftp);
@@ -118,6 +144,7 @@ pub(super) fn start_session_in_tab(tab_id: &str, session: Session, ctx: &Connect
         sftp_last_cwd: ctx.sftp_last_cwd.clone(),
         follow_cd: ctx.sftp_follow_cd.clone(),
         sftp_events: None,
+        conn_generation: generation,
     }));
     if let Ok(mut routes) = ctx.tab_routes.lock() {
         routes.insert(tab_id.to_string(), route.clone());
@@ -222,14 +249,21 @@ pub(super) fn start_session_in_tab(tab_id: &str, session: Session, ctx: &Connect
                 let Ok(rt) = route_pump.lock().map(|g| g.clone()) else {
                     continue;
                 };
+                let live_generation = rt
+                    .statuses
+                    .lock()
+                    .unwrap()
+                    .get(&tab_id_pump)
+                    .map(|st| st.conn_generation);
+                if live_generation != Some(rt.conn_generation) {
+                    drained.clear();
+                    continue;
+                }
 
                 // A close marker can sit behind a large burst of Output events
                 // in the unbounded channel. Handle it before ingesting anything
                 // from this batch so stale scrollback is released immediately.
                 if let Some(closed) = take_closed_event(&mut drained) {
-                    if let Some(h) = crate::app::term_buf(&rt.bufs, &tab_id_pump) {
-                        h.lock().unwrap().release_history_keep_screen();
-                    }
                     let rt_evt = rt.clone();
                     let tid = tab_id_pump.clone();
                     let _ = slint::invoke_from_event_loop(move || {
