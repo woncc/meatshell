@@ -164,6 +164,7 @@ fn session_matches_query(session: &Session, query: &str) -> bool {
     session_matches_normalized_query(session, &query)
 }
 
+#[allow(unused_variables)]
 fn build_session_rows(
     sessions: &[Session],
     explicit_groups: &[String],
@@ -171,6 +172,8 @@ fn build_session_rows(
     builtin_sessions: &[Session],
     query: &str,
     hide_identity: bool,
+    pinned_groups: &[String],
+    pinned_sessions: &[String],
 ) -> Vec<SessionInfo> {
     // Group sessions by their `group` (named groups alphabetically, ungrouped
     // last), then by name within each group, and tag the first row of every
@@ -341,6 +344,8 @@ pub(super) fn sync_sessions_to_model_with_filter(
         &builtin_sessions,
         query,
         hide_identity,
+        &[],
+        &[],
     ));
 }
 
@@ -365,6 +370,8 @@ pub(super) fn refresh_session_rows_in_place(
         &builtin_sessions,
         query,
         hide_identity,
+        &[],
+        &[],
     );
     if rows.len() == model.row_count() {
         for (i, row) in rows.into_iter().enumerate() {
@@ -707,7 +714,7 @@ mod search_tests {
         assert_eq!(custom.name, "kept");
         assert_eq!(custom.password.as_str(), "stored-secret");
 
-        let listed = build_session_rows(&[custom.clone()], &[], None, &[], "", true);
+        let listed = build_session_rows(&[custom.clone()], &[], None, &[], "", true, &[], &[]);
         assert_eq!(listed[0].user.as_str(), "****");
         assert_eq!(listed[0].host.as_str(), "****");
         assert_eq!(custom.user, "alice");
@@ -729,7 +736,7 @@ mod search_tests {
         let groups = vec!["empty".to_string(), "prod".to_string()];
         let collapsed = vec!["prod".to_string(), "system".to_string()];
 
-        let rows = build_session_rows(&saved, &groups, Some(&collapsed), &builtins, "prod", false);
+        let rows = build_session_rows(&saved, &groups, Some(&collapsed), &builtins, "prod", false, &[], &[]);
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].name.as_str(), "Prod API");
@@ -748,6 +755,8 @@ mod search_tests {
             &builtins,
             "LOCALHOST",
             false,
+            &[],
+            &[],
         );
 
         assert_eq!(rows.len(), 1);
@@ -762,7 +771,7 @@ mod search_tests {
         let saved = vec![session("1", "Prod API", "10.0.0.8", "prod")];
         let builtins = vec![session("local", "Local terminal", "localhost", "system")];
 
-        let rows = build_session_rows(&saved, &[], None, &builtins, "staging", false);
+        let rows = build_session_rows(&saved, &[], None, &builtins, "staging", false, &[], &[]);
 
         assert!(rows.is_empty());
     }
@@ -773,7 +782,7 @@ mod search_tests {
         let groups = vec!["empty".to_string(), "prod".to_string()];
         let collapsed = vec!["prod".to_string()];
 
-        let rows = build_session_rows(&saved, &groups, Some(&collapsed), &[], "", false);
+        let rows = build_session_rows(&saved, &groups, Some(&collapsed), &[], "", false, &[], &[]);
 
         assert!(rows
             .iter()
@@ -816,7 +825,7 @@ mod serial_display_tests {
             session.data_bits = bits;
             session.parity = parity.into();
             session.stop_bits = stops;
-            let rows = build_session_rows(&[session], &[], None, &[], "", false);
+            let rows = build_session_rows(&[session], &[], None, &[], "", false, &[], &[]);
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0].serial_detail.as_str(), expected);
         }
@@ -830,7 +839,7 @@ mod serial_display_tests {
             session.host = "example.com".into();
             session.port = 2222;
             session.user = "alice".into();
-            let rows = build_session_rows(&[session], &[], None, &[], "", false);
+            let rows = build_session_rows(&[session], &[], None, &[], "", false, &[], &[]);
             assert!(rows[0].serial_detail.is_empty());
             assert_eq!(rows[0].host.as_str(), "example.com");
             assert_eq!(rows[0].port, 2222);
@@ -850,7 +859,7 @@ mod serial_display_tests {
         serial.kind = SessionKind::Serial;
         serial.serial_port = "COM3".into();
         serial.name = "console".into();
-        let rows = build_session_rows(&[ssh, serial], &[], Some(&[]), &[], "", true);
+        let rows = build_session_rows(&[ssh, serial], &[], Some(&[]), &[], "", true, &[], &[]);
         let ssh_row = rows.iter().find(|row| row.host.as_str() == "****").unwrap();
         assert_eq!(ssh_row.user.as_str(), "****");
         assert_eq!(ssh_row.port, 0, "the list must not keep the real port");
