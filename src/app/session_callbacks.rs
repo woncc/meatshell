@@ -1740,6 +1740,8 @@ pub(super) fn wire_session_callbacks(
                     csi_pending: Vec::new(),
                     raw: std::collections::VecDeque::new(),
                     suppress_alt_erase_saved: false,
+                    primary_fullscreen: false,
+                    cursor_hidden: false,
                     session_log: None,
                     session_log_spec: session_log_spec(&session),
                 })),
