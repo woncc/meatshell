@@ -821,6 +821,8 @@ export component AppWindow inherits Window {
     in-out property <string> group-dialog-name;
     in-out property <string> group-dialog-error;
     callback delete-group(string /* name */);
+    callback pin-group(string);
+    callback pin-session(string);
     callback submit-group(string /* orig */, string /* name */) -> string;
     callback toggle-theme();               // flip dark ↔ light
     // Session sync / broadcast input (#78 pt.4): mirror keystrokes to every
@@ -1663,6 +1665,8 @@ export component AppWindow inherits Window {
                     }
                     delete-group(name) => { root.delete-group(name); }
                     remove-session(id) => { root.remove-session(id); }
+                    pin-group(name) => { root.pin-group(name); }
+                    pin-session(id) => { root.pin-session(id); }
                 }
                 Rectangle {
                     x: root.welcome-sidebar-dock == "left" ? parent.width - 1px : 0px;
@@ -2038,6 +2042,8 @@ export component AppWindow inherits Window {
                         }
                         delete-group(name) => { root.delete-group(name); }
                         remove-session(id) => { root.remove-session(id); }
+                        pin-group(name) => { root.pin-group(name); }
+                        pin-session(id) => { root.pin-session(id); }
                         cycle-tab(reverse) => { root.cycle-tab(reverse); }
                     }
 
@@ -2511,6 +2517,8 @@ export component AppWindow inherits Window {
                     }
                     delete-group(name) => { root.delete-group(name); }
                     remove-session(id) => { root.remove-session(id); }
+                    pin-group(name) => { root.pin-group(name); }
+                    pin-session(id) => { root.pin-session(id); }
                 }
                 if gp.kind == "quick" && !root.zen-mode : QuickDockPanel {
                     width: parent.width;

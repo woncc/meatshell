@@ -750,6 +750,7 @@ impl ConfigStore {
 
     pub fn remove(&mut self, id: &str) {
         self.cache.sessions.retain(|s| s.id != id);
+        self.cache.pinned_sessions.retain(|saved| saved != id);
     }
 
     pub fn get(&self, id: &str) -> Option<&Session> {
@@ -1683,6 +1684,14 @@ impl ConfigStore {
         &self.cache.groups
     }
 
+    pub fn pinned_groups(&self) -> &[String] {
+        &self.cache.pinned_groups
+    }
+
+    pub fn pinned_sessions(&self) -> &[String] {
+        &self.cache.pinned_sessions
+    }
+
     pub fn collapsed_session_groups(&self) -> Option<&[String]> {
         self.cache.collapsed_session_groups.as_deref()
     }
@@ -1769,6 +1778,42 @@ impl ConfigStore {
                 s.group.clear();
             }
         }
+        self.cache.pinned_groups.retain(|group| group != name);
+    }
+
+    pub fn toggle_pinned_group(&mut self, name: &str) -> bool {
+        let name = name.trim();
+        if name.is_empty() || is_reserved_session_group(name) || !self.session_group_exists(name) {
+            return false;
+        }
+        if let Some(index) = self
+            .cache
+            .pinned_groups
+            .iter()
+            .position(|group| group == name)
+        {
+            self.cache.pinned_groups.remove(index);
+        } else {
+            self.cache.pinned_groups.push(name.to_string());
+        }
+        true
+    }
+
+    pub fn toggle_pinned_session(&mut self, id: &str) -> bool {
+        if self.cache.sessions.iter().all(|session| session.id != id) {
+            return false;
+        }
+        if let Some(index) = self
+            .cache
+            .pinned_sessions
+            .iter()
+            .position(|saved| saved == id)
+        {
+            self.cache.pinned_sessions.remove(index);
+        } else {
+            self.cache.pinned_sessions.push(id.to_string());
+        }
+        true
     }
 
     /// Rename a group, moving its sessions along. No-op for reserved names.
