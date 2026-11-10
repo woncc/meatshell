@@ -3,6 +3,11 @@
 All notable changes are documented here. 本文件记录所有重要变更。
 中英对照（中文在前，English after）.
 
+今后默认发布 / Future default publishes
+
+下一次打 tag 或手动运行 Release 时，只启动 Windows x86_64（`.zip` 与 `.msi`）和 macOS Apple Silicon（`aarch64` 的 `.zip`）。不再启动 Linux、glibc 变体、Flatpak 或 Intel macOS。版本校验不变；带 `-` 的 slim 标签仍是预发布，并且 `make_latest` 为 false，不替换 Latest。这不改写 v0.7.13-slim.1 已经发布的多平台资产，也不删除或移动旧标签。
+The next tag or manual Release run starts only Windows x86_64 (`.zip` and `.msi`) and macOS Apple Silicon (`aarch64` `.zip`). It does not start Linux, glibc variants, Flatpak, or Intel macOS. Version checks are unchanged. A hyphenated slim tag stays a prerelease with `make_latest` false, so it does not replace Latest. This does not rewrite the multi-platform assets already published for v0.7.13-slim.1, and it does not delete or move old tags.
+
 v0.7.13-slim.1
 
 相对 v0.7.12-slim.1 的新增。这是预发布，不替换 GitHub Latest，也不替换应用内的最新版检查。v0.7.12-slim.1 已经发布的 7 个上游补丁不在这里再列为新功能。本预发布不恢复已删除的 MCP、CLI 或 automation。

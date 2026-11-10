@@ -122,7 +122,7 @@ v0.7.7 已提供 Windows（`.msi` / `.zip`）、Linux（tar / AppImage / deb / f
 | 性质 | 公开 fork，保留上游协议与大部分产品能力 |
 | 推送 | 仅向本仓（`origin`）推送，日常分支为 `work/main` |
 | 上游 | `upstream` 只读拉取；**不向** `yituorou/meatshell` 开 PR（本 fork 策略） |
-| 发版 | 在本仓打 `v*` 标签，由本仓 GitHub Actions 构建多平台包 |
+| 发版 | 在本仓打 `v*` 标签。默认只构建 Windows x86_64（zip/msi）和 macOS Apple Silicon（zip）；不移动或删除已发布标签和资产 |
 | Force-push | 禁止对已发布分支做 force-push |
 
 分叉以来的独有提交可用：

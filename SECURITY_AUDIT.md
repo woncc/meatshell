@@ -148,7 +148,7 @@ Windows 不能把密码放在 `mstsc` 命令行。实现是把 DPAPI 密文写�
 产品二进制里没有 `curl | sh`。发布工作流里有：
 
 - Debian 10 兼容任务把 `https://sh.rustup.rs` 管道给 `sh`（`.github/workflows/release.yml:389-390` 与 `481-482`）。这是官方 rustup 安装方式，仍然是远程脚本执行，且没有单独的校验和。
-- x86_64 AppImage 步骤 `wget` **continuous** 通道的 `linuxdeploy` 与插件，没有 sha256（`.github/workflows/release.yml:129-132`）。`continue-on-error: true`。一个被替换的 continuous 构建可以进入对外发布的 AppImage。该步骤只在打 `v*` 标签或手动跑 workflow 时执行。
+- x86_64 AppImage 步骤 `wget` **continuous** 通道的 `linuxdeploy` 与插件，没有 sha256（`.github/workflows/release.yml:129-132`）。`continue-on-error: true`。一个被替换的 continuous 构建可以进入对外发布的 AppImage。该步骤只在打 `v*` 标签或手动跑 workflow 时执行。默认 Release 工作流现已去掉 Linux、AppImage、Flatpak、glibc 和 Intel macOS 作业，不再启动它们；v0.7.13-slim.1 已经发布的那些资产不删除。上面的行号是改动前的位置。
 
 原先用来对照的 MCP TLS 工作流、发布包校验工作流和 AUR 发布工作流已从本分支删除。`packaging/aur/` 一并删除，避免一份校验和为 `SKIP` 的配方在本树被 `makepkg` 误用。
 
