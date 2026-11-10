@@ -711,3 +711,33 @@ msgstr "启用 SFTP"
 
 msgid "Off never opens an SFTP connection and hides the SFTP panel."
 msgstr "关闭后不建立 SFTP 连接，也不显示 SFTP 面板。"
+
+msgid "Paste path and open"
+msgstr "粘贴路径并打开"
+
+msgid "Up one folder"
+msgstr "上一级目录"
+
+msgid "Download selected"
+msgstr "下载所选"
+
+msgid "Delete selected"
+msgstr "删除所选"
+
+msgid "Expand panel"
+msgstr "展开面板"
+
+msgid "Collapse panel"
+msgstr "收起面板"
+
+msgid "Collapse sidebar"
+msgstr "收起侧栏"
+
+msgid "System information"
+msgstr "系统信息"
+
+msgid "Show local speed"
+msgstr "显示本机速度"
+
+msgid "Show latency"
+msgstr "显示延迟"

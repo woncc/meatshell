@@ -291,6 +291,12 @@ component StatusBlock inherits Rectangle {
                 Text { text: root.collapse-icon; font-family: "Material Icons";
                        font-size: 14px; color: Theme.text-secondary;
                        horizontal-alignment: center; vertical-alignment: center; }
+                if cl-ta.has-hover : Text {
+                    y: 18px;
+                    text: @tr("Collapse sidebar");
+                    color: Theme.text-primary;
+                    font-size: Theme.fs-xs;
+                }
             }
         }
         // IP / host line — click to copy (#192). Only interactive when there's a
@@ -384,6 +390,12 @@ component StatsBlock inherits VerticalLayout {
                 horizontal-alignment: center;
                 vertical-alignment: center;
             }
+            if info-ta.has-hover : Text {
+                y: 20px;
+                text: @tr("System information");
+                color: Theme.text-primary;
+                font-size: Theme.fs-xs;
+            }
         }
         if root.proc-available : Rectangle {
             width: 52px; height: 20px;
@@ -472,6 +484,12 @@ component NetBlock inherits VerticalLayout {
         mode-ta := TouchArea {
             mouse-cursor: pointer;
             clicked => { root.toggle-local-metric(); }
+        }
+        if mode-ta.has-hover : Text {
+            y: 16px;
+            text: root.latency-mode ? @tr("Show local speed") : @tr("Show latency");
+            color: Theme.text-primary;
+            font-size: Theme.fs-xs;
         }
     }
     if root.show-local-metric && !root.latency-mode : NetGraph {
