@@ -149,6 +149,7 @@ component SingleTab inherits Rectangle {
             IconButton {
                 glyph: "×";
                 size: 20px;
+                tooltip: @tr("Close tab");
                 y: (parent.height - self.height) / 2;
                 clicked => { root.closed(); }
             }
@@ -460,6 +461,7 @@ export component TabBar inherits Rectangle {
                 if root.show-new-tab : IconButton {
                     glyph: "+";
                     size: 28px;
+                    tooltip: @tr("New tab");
                     y: (parent.height - self.height) / 2;
                     clicked => { root.new-tab(); }
                 }
@@ -494,6 +496,7 @@ export component TabBar inherits Rectangle {
         background: Theme.bg-panel-alt;
         IconButton {
             glyph: "<"; size: 24px;
+            tooltip: @tr("Scroll tabs left");
             clicked => { flick.viewport-x = min(0px, flick.viewport-x + 120px); }
         }
     }
@@ -504,6 +507,7 @@ export component TabBar inherits Rectangle {
         background: Theme.bg-panel-alt;
         IconButton {
             glyph: ">"; size: 24px;
+            tooltip: @tr("Scroll tabs right");
             clicked => {
                 flick.viewport-x = max(flick.width - flick.viewport-width, flick.viewport-x - 120px);
             }

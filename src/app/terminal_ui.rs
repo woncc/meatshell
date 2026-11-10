@@ -243,11 +243,23 @@ pub(super) fn refresh_terminal_selection(win: &AppWindow, bufs: &TermBuffers, ta
 
 /// Resolve the user's saved theme preference to a dark/light bool (mirrors the
 /// startup logic): "light"/"dark" win; otherwise ask the OS, defaulting to dark.
+/// `ref:<id>` values are design-reference accents, not zsh themes (#51).
+pub(super) fn color_reference_id(pref: &str) -> &str {
+    pref.strip_prefix("ref:").unwrap_or("")
+}
+
+pub(super) fn saved_theme_is_dark(pref: &str) -> Option<bool> {
+    match pref {
+        "light" | "ref:sunrise" => Some(false),
+        "dark" | "ref:robbyrussell" | "ref:sunaku" => Some(true),
+        _ => None,
+    }
+}
+
 pub(super) fn theme_pref_is_dark(store: &ConfigStore) -> bool {
-    match store.theme_pref() {
-        "light" => false,
-        "dark" => true,
-        _ => match dark_light::detect() {
+    match saved_theme_is_dark(store.theme_pref()) {
+        Some(dark) => dark,
+        None => match dark_light::detect() {
             dark_light::Mode::Light => false,
             dark_light::Mode::Dark => true,
             dark_light::Mode::Default => true, // undetectable → dark
@@ -361,6 +373,24 @@ pub(super) fn apply_wallpaper(
 /// Resolve which interface drives the top sparkline: the user's selection if it
 /// still exists, otherwise the busiest (the list is sorted busiest-first).
 /// Returns (name, rx_bps, tx_bps).
+#[cfg(test)]
+mod theme_reference_tests {
+    use super::{color_reference_id, saved_theme_is_dark};
+
+    #[test]
+    fn references_are_labeled_and_nodeys_is_not_a_preset() {
+        assert_eq!(color_reference_id("ref:robbyrussell"), "robbyrussell");
+        assert_eq!(color_reference_id("ref:sunaku"), "sunaku");
+        assert_eq!(color_reference_id("ref:sunrise"), "sunrise");
+        assert_eq!(color_reference_id("dark"), "");
+        assert_eq!(saved_theme_is_dark("ref:robbyrussell"), Some(true));
+        assert_eq!(saved_theme_is_dark("ref:sunaku"), Some(true));
+        assert_eq!(saved_theme_is_dark("ref:sunrise"), Some(false));
+        assert_eq!(saved_theme_is_dark("ref:nodeys"), None);
+        assert_eq!(saved_theme_is_dark("light"), Some(false));
+    }
+}
+
 pub(super) fn selected_iface(st: &TabStatus) -> (String, u64, u64) {
     if !st.selected_iface.is_empty() {
         if let Some(e) = st.net.iter().find(|e| e.0 == st.selected_iface) {

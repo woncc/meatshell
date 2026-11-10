@@ -85,6 +85,19 @@ pub(super) fn parent_path(path: &str) -> String {
     }
 }
 
+#[cfg(test)]
+mod parent_path_tests {
+    use super::parent_path;
+
+    #[test]
+    fn backspace_parent_stops_at_root() {
+        assert_eq!(parent_path("/root/Downloads"), "/root");
+        assert_eq!(parent_path("/root"), "/");
+        assert_eq!(parent_path("/"), "/");
+        assert_eq!(parent_path(""), "/");
+    }
+}
+
 /// Owner window for native (rfd) file and message dialogs.
 ///
 /// On Windows an unowned dialog can never appear above a window that is kept
@@ -324,24 +337,24 @@ mod dialog_owner_tests {
     fn pinned_toolbar_keeps_focus_left_of_the_pin_and_clear_of_the_eye() {
         let ui = include_str!("../../ui/app.slint");
         assert!(
-            ui.contains("x: root.width - 214px - root.toolbar-x-off;"),
-            "pin must stay at width-214 so it does not cover the eye toggle"
+            ui.contains("x: root.width - 244px - root.toolbar-x-off;"),
+            "pin must stay at width-244 so it does not cover the eye toggle"
         );
         assert!(
-            ui.contains("x: root.width - 184px - root.toolbar-x-off;"),
-            "eye toggle stays at width-184"
+            ui.contains("x: root.width - 214px - root.toolbar-x-off; y: root.toolbar-y;\n        // Open eye"),
+            "eye toggle stays at width-214, left of the pin and clear of the command bar"
         );
         assert!(
-            ui.contains("x: root.width - 214px - root.toolbar-x-off - 6px - self.width;"),
+            ui.contains("x: root.width - 244px - root.toolbar-x-off - 6px - self.width;"),
             "Focus stays immediately left of the pin"
         );
         let panes = include_str!("panes.rs");
         assert!(panes.contains("reserve_right: if top_right { 350.0 } else { 0.0 }"));
 
-        // IconBtn is 26px. Pin occupies [right-214, right-188). Eye starts at right-184.
-        let pin_from_right = 214;
+        // IconBtn is 26px. Pin occupies [right-244, right-218). Eye starts at right-214.
+        let pin_from_right = 244;
         let icon = 26;
-        let eye_from_right = 184;
+        let eye_from_right = 214;
         let gap = (pin_from_right - icon) - eye_from_right;
         assert_eq!(gap, 4, "pin and eye toggle overlap");
     }
