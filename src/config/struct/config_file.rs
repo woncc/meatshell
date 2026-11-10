@@ -257,9 +257,9 @@ pub struct ConfigFile {
     /// stay on speed. A brand-new config stores `"latency"`.
     #[serde(default = "default_local_panel_metric")]
     pub local_panel_metric: String,
-    /// Sample the local panel while the window is hidden or unfocused.
-    /// Default off. Does not stop SSH keepalive, file transfer, or session logs,
-    /// and does not start ICMP while the speed view is showing.
+    /// Sample local speed and ICMP while the window is hidden or unfocused.
+    /// Default off. Does not stop SSH keepalive, file transfer, session logs,
+    /// or the remote resource loops. The speed view does not ping.
     #[serde(default)]
     pub background_monitor: bool,
     /// Hide the sidebar local speed/latency block (title, toggle, and chart).
