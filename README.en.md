@@ -32,7 +32,9 @@ Choose a package for your platform from [woncc/meatshell Releases](https://githu
 | --- | --- |
 | Windows | `.zip` or `.msi` |
 | Linux | `.AppImage`, `.deb`, `.flatpak`, or `.tar.gz` |
-| macOS | `.zip` containing `meatshell.app`, for Apple Silicon or Intel |
+| macOS | `.zip` containing `meatshell.app`. v0.7.13-slim.1 has both Apple Silicon and Intel; later default builds are Apple Silicon only |
+
+Linux and Intel macOS packages already published for v0.7.13-slim.1 remain available. Later default builds do not produce them.
 
 After starting the app, select **New session** and enter the target host and authentication method. Verify the host-key fingerprint before accepting a first connection. On Linux, you can run `./meatshell` from the extracted tarball or use the included `install-linux.sh`. To build from source:
 
