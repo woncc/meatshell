@@ -707,7 +707,24 @@ export component AppWindow inherits Window {
     in-out property <bool> extra-paste-shortcuts-enabled: true;
     callback set-extra-paste-shortcuts-enabled(bool);
     in-out property <bool> zen-mode: false;
+    in-out property <bool> prefer-existing-connection: false;
+    in-out property <bool> allow-double-open-connection: true;
+    in-out property <bool> confirm-extra-connection: true;
+    in-out property <bool> extra-connect-open: false;
+    in-out property <string> extra-connect-name: "";
+    in-out property <bool> confirm-tab-close: false;
+    in-out property <bool> tab-close-open: false;
+    in-out property <string> tab-close-name: "";
     callback set-zen-mode(bool);
+    callback set-prefer-existing-connection(bool);
+    callback set-allow-double-open-connection(bool);
+    callback set-confirm-extra-connection(bool);
+    callback reuse-session-press(string);
+    callback extra-connect-accept();
+    callback extra-connect-cancel();
+    callback set-confirm-tab-close(bool);
+    callback tab-close-accept();
+    callback tab-close-cancel();
     // Eye toggle: hide SSH/Telnet/RDP usernames and hosts for screenshots.
     // Default off (plaintext). Does not change the live connection.
     in-out property <bool> hide-ssh-identity: false;
@@ -1012,6 +1029,8 @@ export component AppWindow inherits Window {
         root.cred-prompt-open ? ModalKind.credentials :
         root.hostkey-prompt-open ? ModalKind.host-key :
         root.confirm-delete-open ? ModalKind.delete-confirm :
+        root.tab-close-open ? ModalKind.tab-close :
+        root.extra-connect-open ? ModalKind.extra-connect :
         root.paste-confirm-open ? ModalKind.paste-confirm :
         root.qcg-open ? ModalKind.command-group :
         root.sftp-prompt-open ? ModalKind.sftp-prompt :
@@ -1621,7 +1640,9 @@ export component AppWindow inherits Window {
                     }
                     new-session => { root.new-session-clicked(); }
                     import-ssh-config => { root.import-ssh-config(); }
+                    prefer-existing: root.prefer-existing-connection;
                     connect-session(id) => { root.connect-session(id); }
+                    reuse-press(id) => { root.reuse-session-press(id); }
                     edit-session(id) => { root.edit-session(id); }
                     duplicate-session(id) => { root.duplicate-session(id); }
                     move-session(id, group) => { root.move-session(id, group); }
@@ -1994,7 +2015,9 @@ export component AppWindow inherits Window {
                         search-changed(query) => { root.host-search-changed(query); }
                         new-session => { root.new-session-clicked(); }
                         import-ssh-config => { root.import-ssh-config(); }
-                        connect-session(id) => { root.connect-session(id); }
+                        prefer-existing: root.prefer-existing-connection;
+                    connect-session(id) => { root.connect-session(id); }
+                    reuse-press(id) => { root.reuse-session-press(id); }
                         edit-session(id) => { root.edit-session(id); }
                         duplicate-session(id) => { root.duplicate-session(id); }
                         move-session(id, group) => { root.move-session(id, group); }
@@ -2465,7 +2488,9 @@ export component AppWindow inherits Window {
                     }
                     new-session => { root.new-session-clicked(); }
                     import-ssh-config => { root.import-ssh-config(); }
+                    prefer-existing: root.prefer-existing-connection;
                     connect-session(id) => { root.connect-session(id); }
+                    reuse-press(id) => { root.reuse-session-press(id); }
                     edit-session(id) => { root.edit-session(id); }
                     duplicate-session(id) => { root.duplicate-session(id); }
                     move-session(id, group) => { root.move-session(id, group); }
@@ -4999,6 +5024,52 @@ export component AppWindow inherits Window {
         }
     }
 
+    ConfirmDialog {
+        width: parent.width;
+        height: parent.height;
+        is-open <=> root.extra-connect-open;
+        is-mac: root.is-mac;
+        covered: root.active-modal != ModalKind.extra-connect;
+        dismiss-on-backdrop: true;
+        title: root.lang-en ? "Open another connection" : "另开连接";
+        message: root.lang-en
+            ? "This session already has a connection in this window. Open another one?"
+            : "本窗口已经有这个会话的连接。要再开一个吗？";
+        detail: root.extra-connect-name;
+        confirm-label: root.lang-en ? "Open" : "另开";
+        confirm => {
+            root.extra-connect-accept();
+            root.extra-connect-open = false;
+        }
+        cancel => {
+            root.extra-connect-cancel();
+            root.extra-connect-open = false;
+        }
+    }
+
+    ConfirmDialog {
+        width: parent.width;
+        height: parent.height;
+        is-open <=> root.tab-close-open;
+        is-mac: root.is-mac;
+        covered: root.active-modal != ModalKind.tab-close;
+        dismiss-on-backdrop: true;
+        title: root.lang-en ? "Close tab" : "关闭标签";
+        message: root.lang-en
+            ? "Close this session tab? The connection in it will be disconnected."
+            : "要关闭这个会话标签吗？其中的连接会被断开。";
+        detail: root.tab-close-name;
+        confirm-label: root.lang-en ? "Close" : "关闭";
+        confirm => {
+            root.tab-close-accept();
+            root.tab-close-open = false;
+        }
+        cancel => {
+            root.tab-close-cancel();
+            root.tab-close-open = false;
+        }
+    }
+
     // Host-key confirmation (#109-5). Reuses the confirm-dialog card. The backdrop
     // is NOT a dismiss here (#152): clicking outside the card used to count as a
     // reject and — worse — poison the host for the whole run. The user must pick
@@ -5489,6 +5560,10 @@ export component AppWindow inherits Window {
                     paste-confirm-enabled <=> root.paste-confirm-enabled;
                     extra-paste-shortcuts-enabled <=> root.extra-paste-shortcuts-enabled;
                     zen-mode <=> root.zen-mode;
+                    prefer-existing-connection <=> root.prefer-existing-connection;
+                    allow-double-open-connection <=> root.allow-double-open-connection;
+                    confirm-extra-connection <=> root.confirm-extra-connection;
+                    confirm-tab-close <=> root.confirm-tab-close;
                     hide-ssh-identity <=> root.hide-ssh-identity;
                     welcome-as-sidebar <=> root.welcome-as-sidebar;
                     quick-commands-as-sidebar <=> root.quick-commands-as-sidebar;
@@ -5545,6 +5620,10 @@ export component AppWindow inherits Window {
                     set-paste-confirm-enabled(v) => { root.set-paste-confirm-enabled(v); }
                     set-extra-paste-shortcuts-enabled(v) => { root.set-extra-paste-shortcuts-enabled(v); }
                     set-zen-mode(v) => { root.set-zen-mode(v); }
+                    set-prefer-existing-connection(v) => { root.set-prefer-existing-connection(v); }
+                    set-allow-double-open-connection(v) => { root.set-allow-double-open-connection(v); }
+                    set-confirm-extra-connection(v) => { root.set-confirm-extra-connection(v); }
+                    set-confirm-tab-close(v) => { root.set-confirm-tab-close(v); }
                     set-hide-ssh-identity(v) => { root.set-hide-ssh-identity(v); }
                     set-welcome-as-sidebar(v) => { root.set-welcome-as-sidebar(v); }
                     set-quick-commands-as-sidebar(v) => {

@@ -6,6 +6,8 @@
 //!   * Manage the tab list + per-tab `SessionHandle` map.
 //!   * Route Slint callbacks to the right domain module.
 mod auth_dialogs;
+mod connection_policy;
+mod tab_close;
 mod aux_windows;
 pub(crate) mod core;
 mod dock_stacks;
