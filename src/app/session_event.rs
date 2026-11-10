@@ -73,8 +73,7 @@ pub(super) fn apply_session_event_to_window(
 
     match event {
         SessionEvent::Status(status) => {
-            let hide = win.get_hide_ssh_identity();
-            update_terminal(&|t| write_terminal_status(t, hide, &status));
+            update_terminal(&|t| write_terminal_status(t, false, &status));
         }
         SessionEvent::Output(chunk) => {
             // Synthetic Output (disconnect hint, editor error, …) — rare, already
@@ -84,9 +83,8 @@ pub(super) fn apply_session_event_to_window(
         }
         SessionEvent::Connected => {
             update_tab(&|t| t.connected = true);
-            let hide = win.get_hide_ssh_identity();
             let connected = crate::i18n::t("已连接", "Connected");
-            update_terminal(&|t| write_terminal_status(t, hide, connected));
+            update_terminal(&|t| write_terminal_status(t, false, connected));
             if let Some(st) = statuses.lock().unwrap().get_mut(tab_id) {
                 st.state = 1;
             }
@@ -130,9 +128,8 @@ pub(super) fn apply_session_event_to_window(
                 local_net_hist,
             );
             update_tab(&|t| t.connected = false);
-            let hide = win.get_hide_ssh_identity();
             let disconnected = format!("{} — {reason}", crate::i18n::t("已断开", "Disconnected"));
-            update_terminal(&|t| write_terminal_status(t, hide, &disconnected));
+            update_terminal(&|t| write_terminal_status(t, false, &disconnected));
             if let Some(st) = statuses.lock().unwrap().get_mut(tab_id) {
                 st.state = 2;
             }

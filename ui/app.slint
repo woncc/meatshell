@@ -4850,7 +4850,6 @@ export component AppWindow inherits Window {
         height: parent.height;
         is-open <=> root.dialog-open;
         is-editing <=> root.dialog-editing;
-        hide-identity: root.hide-ssh-identity;
         is-mac: root.is-mac;
         covered: root.active-modal != ModalKind.session;
         draft-id <=> root.dialog-id;
@@ -5156,7 +5155,7 @@ export component AppWindow inherits Window {
                     font-weight: 600;
                 }
                 Text {
-                    text: root.hide-ssh-identity ? "****" : root.cred-host;
+                    text: root.cred-host;
                     color: Theme.text-secondary;
                     font-family: Theme.font-mono;
                     font-size: Theme.fs-sm;
@@ -5164,7 +5163,6 @@ export component AppWindow inherits Window {
                 if root.cred-need-user : LabeledInput {
                     label: @tr("Username");
                     placeholder: "root";
-                    fixed-mask: root.hide-ssh-identity && root.cred-user != "";
                     value <=> root.cred-user;
                     accepted => { root.cred-accept(); }
                     canceled => { root.cred-reject(); }   // Esc cancels (#140-3)

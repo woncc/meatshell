@@ -1,9 +1,9 @@
-//! Screenshot redaction for SSH usernames, hosts, and ports.
+//! Left-list redaction for SSH usernames and hosts (#48).
 //!
-//! The saved session and the live connection keep the real address. This only
-//! rewrites strings the window draws (status line, sidebar, tab title, session
-//! list) while the eye toggle is closed. Each identity token becomes a fixed
-//! `****`, so the label does not keep `@`, `:port`, or the original length.
+//! The saved session and the live connection keep the real address. While the
+//! eye toggle is closed, only the left session list is masked. Dialogs, tab
+//! titles, and the connection status stay readable. Each masked token becomes
+//! a fixed `****`.
 
 use super::*;
 
@@ -38,23 +38,6 @@ pub(super) fn redact_connection_text(text: &str, user: &str, host: &str) -> Stri
     out
 }
 
-/// User and host encoded in a sidebar label (`alice@10.0.0.1`, or a telnet
-/// label that has no `@` and falls back to the probe host).
-pub(super) fn identity_from_connection_label(
-    label: &str,
-    user: &str,
-    probe_host: &str,
-) -> (String, String) {
-    if let Some((left, right)) = label.rsplit_once('@') {
-        let left = left.trim();
-        let right = right.trim();
-        if !left.is_empty() && !right.is_empty() && !left.contains(' ') && !right.contains(' ') {
-            return (left.to_string(), right.to_string());
-        }
-    }
-    (user.trim().to_string(), probe_host.trim().to_string())
-}
-
 pub(super) fn write_terminal_status(row: &mut TerminalState, hide: bool, raw: &str) {
     let shown = displayed_identity_text(
         hide,
@@ -78,10 +61,11 @@ pub(super) fn write_tab_title(row: &mut TabInfo, hide: bool, raw: &str) {
     row.title_len = tab_title_len(&shown);
 }
 
+/// The hide switch covers only the left session list. Tabs and the terminal
+/// status line keep the real text, including after the switch is toggled.
 pub(super) fn reapply_identity_mask(win: &AppWindow) {
-    let hide = win.get_hide_ssh_identity();
-    reapply_terminal_status(win, hide);
-    reapply_tab_titles(win, hide);
+    reapply_terminal_status(win, false);
+    reapply_tab_titles(win, false);
 }
 
 fn reapply_terminal_status(win: &AppWindow, hide: bool) {

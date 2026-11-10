@@ -99,8 +99,8 @@ msgstr "Port"
 msgid "Username"
 msgstr "Username"
 
-msgid "Prompted on connect if blank"
-msgstr "Prompted on connect if blank"
+msgid "Leave blank to use root"
+msgstr "Leave blank to use root"
 
 msgid "Authentication"
 msgstr "Authentication"

@@ -99,8 +99,8 @@ msgstr "端口"
 msgid "Username"
 msgstr "用户名"
 
-msgid "Prompted on connect if blank"
-msgstr "留空则连接时询问"
+msgid "Leave blank to use root"
+msgstr "留空默认 root"
 
 msgid "Authentication"
 msgstr "认证方式"

@@ -687,7 +687,7 @@ pub(super) fn open_window(
             }
             if w.get_dialog_open() {
                 let id = w.get_dialog_id().to_string();
-                let (labels, _ids) = jump_candidates(&store.borrow(), &id, hide);
+                let (labels, _ids) = jump_candidates(&store.borrow(), &id, false);
                 w.set_jump_choices(labels);
             }
         });
