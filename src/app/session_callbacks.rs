@@ -228,8 +228,7 @@ pub(super) fn wire_session_callbacks(
             w.set_dialog_forwards(forward_model(&ef_new.borrow()));
             w.set_dialog_triggers(trigger_model(&et_new.borrow()));
             let empty = Session::new_empty();
-            let (jump_labels, jump_ids) =
-                jump_candidates(&store_ng.borrow(), &empty.id, w.get_hide_ssh_identity());
+            let (jump_labels, jump_ids) = jump_candidates(&store_ng.borrow(), &empty.id, false);
             w.set_jump_choices(jump_labels);
             w.set_jump_ids(jump_ids);
             w.set_dialog_jumps(ModelRc::default());
@@ -238,8 +237,8 @@ pub(super) fn wire_session_callbacks(
             w.set_dialog_name("".into());
             w.set_dialog_host("".into());
             w.set_dialog_port("22".into());
-            // No default username (#110): leaving it blank makes the connect-time
-            // prompt ask for it, Xshell-style.
+            // The field stays empty (#54). Saving or connecting a blank SSH
+            // username uses root; do not write that default into the input.
             w.set_dialog_user("".into());
             w.set_dialog_auth("password".into());
             w.set_dialog_password("".into());
@@ -772,8 +771,7 @@ pub(super) fn wire_session_callbacks(
                 let (proxy_type, proxy_hostport) = split_proxy(&session.proxy);
                 w.set_dialog_proxy_type(proxy_type.into());
                 w.set_dialog_proxy_hostport(proxy_hostport.into());
-                let (jump_labels, jump_ids) =
-                    jump_candidates(&store, &session.id, w.get_hide_ssh_identity());
+                let (jump_labels, jump_ids) = jump_candidates(&store, &session.id, false);
                 let route = store.resolve_jump_chain(session);
                 let ids = match route {
                     Ok(hops) => hops.into_iter().rev().map(|hop| hop.id).collect(),
@@ -1578,18 +1576,13 @@ pub(super) fn wire_session_callbacks(
             }
             let tab_id = format!("term-{}", uuid::Uuid::new_v4());
             let tab_title = session.name.clone();
-            let hide_identity = weak
-                .upgrade()
-                .map(|w| w.get_hide_ssh_identity())
-                .unwrap_or(false);
             let (identity_user, identity_host) = match session.kind {
                 SessionKind::Ssh | SessionKind::Telnet | SessionKind::Rdp => {
                     (session.user.clone(), session.host.clone())
                 }
                 _ => (String::new(), String::new()),
             };
-            let shown_title =
-                displayed_identity_text(hide_identity, &tab_title, &identity_user, &identity_host);
+            let shown_title = tab_title.clone();
 
             // Connection label shown in the sidebar / status line, per transport.
             let conn_label = match session.kind {
@@ -1656,7 +1649,7 @@ pub(super) fn wire_session_callbacks(
             terminals_model.push(TerminalState {
                 id: tab_id.clone().into(),
                 status: displayed_identity_text(
-                    hide_identity,
+                    false,
                     connecting,
                     identity_user.as_str(),
                     identity_host.as_str(),
@@ -1812,7 +1805,9 @@ pub(super) fn wire_session_callbacks(
         let panes_model = panes_for_reuse.clone();
         let splitters_model = splitters_for_reuse.clone();
         let bufs = bufs.clone();
-        let arbiter = Rc::new(RefCell::new(super::connection_policy::ClickArbiter::default()));
+        let arbiter = Rc::new(RefCell::new(
+            super::connection_policy::ClickArbiter::default(),
+        ));
         let timer = Rc::new(slint::Timer::default());
         let pending_extra = Rc::new(RefCell::new(None::<String>));
 
@@ -2021,14 +2016,10 @@ pub(super) fn wire_session_callbacks(
             let Some(title) = title else {
                 return;
             };
-            let hide = weak
-                .upgrade()
-                .map(|w| w.get_hide_ssh_identity())
-                .unwrap_or(false);
             for i in 0..tabs_model.row_count() {
                 if let Some(mut row) = tabs_model.row_data(i) {
                     if row.id.as_str() == tab_id {
-                        write_tab_title(&mut row, hide, &title);
+                        write_tab_title(&mut row, false, &title);
                         tabs_model.set_row_data(i, row);
                         break;
                     }
@@ -2042,7 +2033,7 @@ pub(super) fn wire_session_callbacks(
                     for ti in 0..pane.tabs.row_count() {
                         if let Some(mut tab) = pane.tabs.row_data(ti) {
                             if tab.id.as_str() == tab_id {
-                                write_tab_title(&mut tab, hide, &title);
+                                write_tab_title(&mut tab, false, &title);
                                 pane.tabs.set_row_data(ti, tab);
                             }
                         }
