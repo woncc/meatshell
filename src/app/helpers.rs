@@ -85,6 +85,19 @@ pub(super) fn parent_path(path: &str) -> String {
     }
 }
 
+#[cfg(test)]
+mod parent_path_tests {
+    use super::parent_path;
+
+    #[test]
+    fn backspace_parent_stops_at_root() {
+        assert_eq!(parent_path("/root/Downloads"), "/root");
+        assert_eq!(parent_path("/root"), "/");
+        assert_eq!(parent_path("/"), "/");
+        assert_eq!(parent_path(""), "/");
+    }
+}
+
 /// Owner window for native (rfd) file and message dialogs.
 ///
 /// On Windows an unowned dialog can never appear above a window that is kept

@@ -1797,6 +1797,11 @@ impl ConfigStore {
         }
     }
 
+    /// The sidebar only confirms deletion of an empty group (#49).
+    pub fn group_has_sessions(&self, name: &str) -> bool {
+        self.cache.sessions.iter().any(|session| session.group == name)
+    }
+
     /// Delete a group. Any session still in it falls back to ungrouped — the UI
     /// only offers delete on empty groups, but we clear sessions defensively.
     pub fn remove_group(&mut self, name: &str) {
@@ -2023,6 +2028,33 @@ mod tests {
             cache: ConfigFile::default(),
             key: [7u8; 32],
         }
+    }
+
+    #[test]
+    fn pins_round_trip_and_a_non_empty_group_is_not_empty() {
+        let missing: ConfigFile = serde_json::from_str("{}").unwrap();
+        assert!(missing.pinned_groups.is_empty());
+        assert!(missing.pinned_sessions.is_empty());
+
+        let mut store = temp_store();
+        let mut host = Session::new_empty();
+        host.id = "b".into();
+        host.user = "alice".into();
+        host.group = "lab".into();
+        store.cache.sessions = vec![host];
+        store.cache.groups = vec!["lab".into()];
+        assert!(store.group_has_sessions("lab"));
+        assert!(!store.group_has_sessions("empty"));
+        assert!(store.toggle_pinned_group("lab"));
+        assert!(store.toggle_pinned_session("b"));
+        assert_eq!(store.pinned_groups(), ["lab"]);
+        assert_eq!(store.pinned_sessions(), ["b"]);
+        let again: ConfigFile = serde_json::from_str(&serde_json::to_string(&store.cache).unwrap()).unwrap();
+        assert_eq!(again.pinned_groups, vec!["lab".to_string()]);
+        assert_eq!(again.pinned_sessions, vec!["b".to_string()]);
+        assert_eq!(again.sessions[0].user, "alice");
+        assert!(store.toggle_pinned_session("b"));
+        assert!(store.pinned_sessions().is_empty());
     }
 
     #[test]
