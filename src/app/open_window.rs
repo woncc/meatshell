@@ -824,11 +824,12 @@ pub(super) fn open_window(
     );
 
     // --- Window activity, for idle-CPU throttling (#127) ----------------
-    // Idle terminals shouldn't burn CPU. Unless "后台持续监控" is on, the local
-    // sampler pauses while minimized or occluded and samples about every 5s
-    // while unfocused. It still does not draw in those states. Sidebar collapse
-    // and focus mode pause it either way. The winit hook updates activity; the
-    // blink reads Theme.window-focused.
+    // Idle terminals shouldn't burn CPU. The background-monitor switch gates
+    // both local samples and ICMP: off pauses while minimized or occluded and
+    // samples about every 5s while unfocused; on keeps sampling about once a
+    // second. Neither state draws. Sidebar collapse and focus mode stay paused
+    // either way. The winit hook updates activity; the blink reads
+    // Theme.window-focused.
     let activity = Rc::new(std::cell::Cell::new(WinActivity::Active));
     // Once the user confirms shutdown, every subsequent native/custom close
     // request must pass through without reopening the modal. Windows Installer
@@ -868,31 +869,35 @@ pub(super) fn open_window(
             if matches!(presence, crate::resource::latency::PanelPresence::Unfocused) {
                 bg_tick = bg_tick.wrapping_add(1);
             }
-            let decision = crate::resource::latency::local_sample_decision(
+            let host = active_probe_host(&window, &tick_statuses);
+            let decision = crate::resource::latency::monitor_tick(
                 presence,
                 window.get_background_monitor(),
+                window.get_local_latency_mode(),
+                !host.is_empty(),
                 bg_tick,
             );
-            if !decision.sample {
-                return;
+            // Mode follows the window even when the sidebar is not redrawn.
+            tick_local.latency.set_target(&host);
+            tick_local.latency.set_mode(decision.icmp);
+            if decision.sample_local {
+                let snap = {
+                    let mut s = tick_sampler.lock().expect("sampler poisoned");
+                    s.sample()
+                };
+                push_rate(
+                    &mut tick_net.lock().unwrap(),
+                    snap.net_rx_per_sec as f32,
+                    snap.net_tx_per_sec as f32,
+                );
+                *tick_local.snap.lock().unwrap() = snap;
+            } else {
+                // One empty slot for this second. Do not repeat the last rate.
+                push_rate_gap(&mut tick_net.lock().unwrap());
             }
-            let snap = {
-                let mut s = tick_sampler.lock().expect("sampler poisoned");
-                s.sample()
-            };
-            // Append the raw local throughput to the bottom-graph ring buffer
-            // (normalisation happens at display time so the graph auto-scales).
-            push_rate(
-                &mut tick_net.lock().unwrap(),
-                snap.net_rx_per_sec as f32,
-                snap.net_tx_per_sec as f32,
-            );
-            // Stash the local sample; the sidebar shows it on the welcome tab
-            // and in the bottom network graph.
-            *tick_local.snap.lock().unwrap() = snap.clone();
 
-            // Everything (status, CPU/mem/swap, both graphs) follows the
-            // active tab; refresh_sidebar reads the stores we just updated.
+            // Drawing is separate from sampling. Hidden and unfocused ticks
+            // keep the rings and leave the pixels alone.
             if decision.draw && sidebar_updates_visible(&window) {
                 refresh_sidebar(&window, &tick_statuses, &tick_local, &tick_net);
             }

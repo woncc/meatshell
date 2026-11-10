@@ -13,6 +13,14 @@ pub(super) fn push_rate(hist: &mut RateHist, rx: f32, tx: f32) {
     push_ring(&mut hist.tx, tx);
 }
 
+/// A second with no local sample. Not a measured 0 B/s, and not a copy of the
+/// previous sample. The sparkline draws it as an empty bar.
+pub(super) const RATE_GAP: f32 = -1.0;
+
+pub(super) fn push_rate_gap(hist: &mut RateHist) {
+    push_rate(hist, RATE_GAP, RATE_GAP);
+}
+
 /// How many fixed-pitch bars fit in a sparkline of `graph_width_px`.
 /// Pitch is 3px, matching `Sparkline.bar-pitch` in `ui/widgets.slint`.
 pub(super) fn net_bars_for_graph_width(graph_width_px: f32) -> usize {
@@ -30,11 +38,10 @@ pub(super) fn visible_tail(buf: &[f32], bars: usize) -> &[f32] {
     }
 }
 
-/// Auto-scale a raw history to 0..1 against its own peak so the sparkline
-/// uses the full height (like FinalShell's relative graph).
+/// Auto-scale a latency history to 0..1. Empty slots stay empty; they are not
+/// averaged into the neighbours.
 pub(super) fn normalized_values(buf: &[f32]) -> Vec<f32> {
-    let max = buf.iter().cloned().fold(1.0_f32, f32::max);
-    buf.iter().map(|v| (v / max).clamp(0.0, 1.0)).collect()
+    crate::resource::latency::latency_plot(buf)
 }
 
 pub(super) fn normalized_model(buf: &[f32]) -> ModelRc<f32> {
@@ -62,12 +69,12 @@ pub(super) fn scale_rate_pair(rx: &[f32], tx: &[f32]) -> ScaledRates {
         .iter()
         .chain(tx.iter())
         .copied()
-        .filter(|v| v.is_finite())
+        .filter(|v| v.is_finite() && *v >= 0.0)
         .fold(0.0_f32, f32::max)
         .max(0.0);
     let denom = peak.max(1.0);
     let scale = |v: f32| {
-        if v.is_finite() {
+        if v.is_finite() && v >= 0.0 {
             (v / denom).clamp(0.0, 1.0)
         } else {
             0.0
@@ -236,6 +243,15 @@ mod net_history_tests {
         assert_eq!(idle.axis_top, "0");
         assert_eq!(idle.axis_mid, "0");
         assert_eq!(idle.rx, vec![0.0, 0.0]);
+        let gap = super::scale_rate_pair(
+            &[100.0, super::RATE_GAP, 40.0],
+            &[0.0, super::RATE_GAP, 0.0],
+        );
+        assert_eq!(gap.axis_top, "100");
+        assert!((gap.rx[0] - 1.0).abs() < 0.001);
+        assert_eq!(gap.rx[1], 0.0);
+        assert!((gap.rx[2] - 0.4).abs() < 0.001);
+        assert_ne!(gap.rx[1], 0.7);
     }
 
     /// A spike that has scrolled off a narrow sidebar must not keep the axis
