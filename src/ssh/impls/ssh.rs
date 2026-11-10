@@ -2928,6 +2928,11 @@ pub(crate) async fn resolve_credentials(
     events: &UnboundedSender<SessionEvent>,
 ) -> Option<(String, String)> {
     let mut user = session.user.trim().to_string();
+    // Saved blank SSH users connect as root without asking (#54). A typed
+    // username, including one that is not root, is left unchanged.
+    if session.kind == crate::config::SessionKind::Ssh && user.is_empty() {
+        user = "root".to_string();
+    }
     let mut password = session.password.as_str().to_string();
     let need_user = user.is_empty();
     let need_password = matches!(session.auth, AuthMethod::Password) && password.is_empty();

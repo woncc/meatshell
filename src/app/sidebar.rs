@@ -70,18 +70,10 @@ mod activity_tests {
 }
 
 fn present_connection(win: &AppWindow, st: &TabStatus, label: String) {
-    let hide = win.get_hide_ssh_identity() && st.redactable;
-    let (user, host) = if st.redactable {
-        identity_from_connection_label(&st.host, &st.user, &st.probe_host)
-    } else {
-        (String::new(), String::new())
-    };
-    win.set_connection_state(displayed_identity_text(hide, &label, &user, &host).into());
-    win.set_conn_host(if hide {
-        "".into()
-    } else {
-        conn_ip(&st.host).into()
-    });
+    // Identity hiding is the left session list only (#48). The resource
+    // sidebar keeps the real connection label.
+    win.set_connection_state(label.into());
+    win.set_conn_host(conn_ip(&st.host).into());
 }
 
 /// ICMP target for the active tab. Empty unless that tab is a connected

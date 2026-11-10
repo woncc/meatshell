@@ -218,9 +218,9 @@ pub struct ConfigFile {
     /// Off by default. Does not apply to quitting the application.
     #[serde(default)]
     pub confirm_tab_close: bool,
-    /// Screenshot redaction. Default off: SSH/Telnet/RDP usernames and hosts
-    /// stay visible. On replaces those labels with a placeholder; the stored
-    /// session and the live connection are unchanged.
+    /// Left-list redaction (#48). Default off. On replaces usernames and hosts
+    /// in the left session list only. Dialogs, tab titles, and the connection
+    /// keep the real values. The stored session is unchanged.
     #[serde(default)]
     pub hide_ssh_identity: bool,
     /// Saved quick commands (#55).

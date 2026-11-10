@@ -493,6 +493,18 @@ pub(super) fn wsl_available() -> bool {
 /// Build the effective session represented by the dialog. When editing, blank
 /// secret fields retain their saved values. Stored secrets only enter the UI
 /// after opting in and clicking the eye button (#10, #276).
+/// SSH with a blank username logs in as `root` (#54). The new-session field
+/// stays empty; this is applied only when the draft is stored or a connection
+/// is started. A non-empty username is returned unchanged.
+pub(super) fn ssh_login_user(kind: SessionKind, raw: &str) -> String {
+    let trimmed = raw.trim();
+    if kind == SessionKind::Ssh && trimmed.is_empty() {
+        "root".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 pub(super) fn session_from_draft(
     draft: &SessionDraft,
     existing: Option<&Session>,
@@ -522,11 +534,14 @@ pub(super) fn session_from_draft(
         draft.private_key_path.to_string().replace('\\', "/")
     };
     let kind = SessionKind::from_str(&draft.kind.to_string());
+    // A blank SSH username is the default login, not a value typed into the
+    // field (#54). Other protocols keep an empty user.
+    let user = ssh_login_user(kind, draft.user.as_str());
     // Auto-name: serial uses the device; otherwise user@host or just host (#110).
     let auto_name = match kind {
         SessionKind::Serial => format!("{} @{}", draft.serial_port, draft.baud_rate),
-        _ if draft.user.trim().is_empty() => draft.host.to_string(),
-        _ => format!("{}@{}", draft.user, draft.host),
+        _ if user.is_empty() => draft.host.to_string(),
+        _ => format!("{user}@{}", draft.host),
     };
     // Telnet defaults to 23, RDP to 3389, SSH to 22; serial ignores the port.
     let default_port = match kind {
@@ -552,7 +567,7 @@ pub(super) fn session_from_draft(
         } else {
             draft.port as u16
         },
-        user: draft.user.to_string(),
+        user,
         auth: AuthMethod::from_str(&draft.auth.to_string()),
         password,
         private_key_path,
@@ -698,6 +713,40 @@ mod search_tests {
         value.host = host.into();
         value.group = group.into();
         value
+    }
+
+    #[test]
+    fn blank_ssh_username_means_root_and_other_users_stay() {
+        assert_eq!(ssh_login_user(SessionKind::Ssh, "  "), "root");
+        assert_eq!(ssh_login_user(SessionKind::Ssh, "alice"), "alice");
+        assert_eq!(ssh_login_user(SessionKind::Telnet, ""), "");
+        assert_eq!(ssh_login_user(SessionKind::Serial, "root"), "root");
+
+        let mut draft = SessionDraft::default();
+        draft.kind = "ssh".into();
+        draft.host = "fixture.example".into();
+        draft.port = 22;
+        draft.user = "".into();
+        draft.auth = "password".into();
+        let saved = session_from_draft(&draft, None, Vec::new(), Vec::new());
+        assert_eq!(saved.user, "root");
+        assert_eq!(saved.name, "root@fixture.example");
+
+        draft.user = "alice".into();
+        draft.name = "kept".into();
+        let mut existing = Session::new_empty();
+        existing.user = "alice".into();
+        existing.password = Secret::new("stored-secret");
+        let custom = session_from_draft(&draft, Some(&existing), Vec::new(), Vec::new());
+        assert_eq!(custom.user, "alice");
+        assert_eq!(custom.name, "kept");
+        assert_eq!(custom.password.as_str(), "stored-secret");
+
+        let listed = build_session_rows(&[custom.clone()], &[], None, &[], "", true, &[], &[]);
+        assert_eq!(listed[0].user.as_str(), "****");
+        assert_eq!(listed[0].host.as_str(), "****");
+        assert_eq!(custom.user, "alice");
+        assert_eq!(custom.host, "fixture.example");
     }
 
     #[test]
