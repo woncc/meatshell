@@ -155,5 +155,6 @@ git log --oneline upstream/main..work/main
 ## 维护说明
 
 - 本文档随本 fork 演进更新；新一轮 Win11 验收或合入上游同步后，应增补版本表与索引。
+- 上游审查到哪、哪些已吸收、哪些因问题没合，见 [docs/upstream-sync.md](./docs/upstream-sync.md)。没合入不等于有缺陷。
 - 产品总览、构建与通用用法仍以 [`README.md`](./README.md) 与上游文档为准；**本页只写 fork 差异**。
 - 欢迎在本仓 Issue 反馈；确认无误后再关闭仍开放的 #10 / #13 / #15。
