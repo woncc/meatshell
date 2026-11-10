@@ -22,6 +22,8 @@ component SessionRow inherits Rectangle {
     in property <SessionInfo> session;
     in property <bool> compact;
     callback connect();
+    in property <bool> prefer-existing: false;
+    callback reuse-press();
     callback edit();
     callback duplicate();
     callback move-to-group(string);
@@ -91,7 +93,11 @@ component SessionRow inherits Rectangle {
                     // row under a released pointer must not treat it as a
                     // click when the grab landed elsewhere after hops.
                     if (root.pressing && !root.grab-dragging) {
-                        root.connect();
+                        if (root.prefer-existing) {
+                            root.reuse-press();
+                        } else {
+                            root.connect();
+                        }
                     }
                     if (root.grab-dragging) {
                         root.drag-end();
@@ -358,6 +364,8 @@ export component Welcome inherits Rectangle {
     callback new-session();
     callback import-ssh-config();
     callback connect-session(string);
+    in property <bool> prefer-existing: false;
+    callback reuse-press(string);
     callback edit-session(string);
     callback duplicate-session(string);
     callback move-session(string /* id */, string /* group */);
@@ -792,7 +800,9 @@ export component Welcome inherits Rectangle {
                             reorder-enabled: root.search-query == "" && !session.builtin;
                             drag-target: root.list-dragging && root.drag-id == session.id;
                             list-dragging: root.list-dragging;
+                            prefer-existing: root.prefer-existing;
                             connect => { root.connect-session(session.id); }
+                            reuse-press => { root.reuse-press(session.id); }
                             edit => { root.edit-session(session.id); }
                             duplicate => { root.duplicate-session(session.id); }
                             move-to-group(g) => { root.move-session(session.id, g); }

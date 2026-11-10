@@ -132,10 +132,44 @@ pub(super) fn wire_tab_callbacks(
         let splitters_model = splitters_model.clone();
         let tab_titles = tab_titles.clone();
         let tab_routes = core.tab_routes.clone();
+        let close_gate = Rc::new(RefCell::new(super::tab_close::CloseGate::default()));
+        let store_close = core.store.clone();
+        let weak_accept = window.as_weak();
+        let gate_accept = close_gate.clone();
+        window.on_tab_close_accept(move || {
+            let Some(id) = gate_accept.borrow_mut().confirm() else {
+                return;
+            };
+            if let Some(w) = weak_accept.upgrade() {
+                w.invoke_pane_tab_closed(0, id.into());
+            }
+        });
+        let gate_cancel = close_gate.clone();
+        window.on_tab_close_cancel(move || {
+            gate_cancel.borrow_mut().cancel();
+        });
+        let store = store_close;
+        let close_gate = close_gate.clone();
         window.on_pane_tab_closed(move |_pane_id: i32, id: SharedString| {
             let id = id.to_string();
-            if id == "welcome" {
-                return;
+            let confirm = store.borrow().confirm_tab_close();
+            match close_gate.borrow_mut().begin(&id, confirm) {
+                super::tab_close::CloseStep::Ignore => return,
+                super::tab_close::CloseStep::Ask => {
+                    if let Some(w) = weak.upgrade() {
+                        let name = (0..tabs_model.row_count())
+                            .find_map(|i| {
+                                tabs_model.row_data(i).and_then(|row| {
+                                    (row.id.as_str() == id).then(|| row.title.to_string())
+                                })
+                            })
+                            .unwrap_or_else(|| id.clone());
+                        w.set_tab_close_name(name.into());
+                        w.set_tab_close_open(true);
+                    }
+                    return;
+                }
+                super::tab_close::CloseStep::Proceed => {}
             }
             tab_titles.borrow_mut().remove(&id);
             if let Some(handle) = handles.borrow_mut().remove(&id) {
