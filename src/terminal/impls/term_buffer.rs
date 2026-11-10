@@ -90,8 +90,20 @@ impl TermBuffer {
     /// `MAX_HISTORY` lines) — so an idle disconnected tab doesn't keep a
     /// large allocation alive. The live screen itself is already bounded by
     /// rows×cols, so keeping it costs nothing.
-    pub(crate) fn release_history_keep_screen(&mut self) {
+    /// `keep_scrollback` retains the rendered history (already capped at
+    /// `MAX_HISTORY`) so the user can scroll after disconnect. The raw replay
+    /// stream is always released. Reconnect still uses `release_scrollback`.
+    pub(crate) fn release_history_keep_screen(&mut self, keep_scrollback: bool) {
+        let kept;
+        if keep_scrollback {
+            kept = std::mem::take(&mut self.history);
+        } else {
+            kept = std::collections::VecDeque::new();
+        }
         self.reset_light_state();
+        if keep_scrollback {
+            self.history = kept;
+        }
     }
 
     /// Shared bookkeeping reset between the two variants above: everything

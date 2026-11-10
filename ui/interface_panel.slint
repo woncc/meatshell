@@ -389,6 +389,7 @@ export component InterfacePanel inherits Rectangle {
     in-out property <bool> collapse-sidebar-default;
     in-out property <bool> local-latency-mode: false;
     in-out property <bool> background-monitor: false;
+    in-out property <bool> keep-disconnect-scrollback: true;
     in-out property <bool> show-local-metric: true;
     in-out property <string> net-up-color-hex: "";
     in-out property <string> net-down-color-hex: "";
@@ -463,6 +464,7 @@ export component InterfacePanel inherits Rectangle {
     callback set-collapse-sidebar-default(bool);
     callback set-local-latency-mode(bool);
     callback set-background-monitor(bool);
+    callback set-keep-disconnect-scrollback(bool);
     callback set-language(string);
     callback open-shortcuts();
     callback toggle-theme();
@@ -750,6 +752,16 @@ export component InterfacePanel inherits Rectangle {
                     }
                 }
                 SettingRow {
+                    label: root.lang-en ? "Keep terminal history after disconnect" : "断开后保留终端历史";
+                    desc: root.lang-en
+                        ? "On by default, including older configs that never stored this. Scroll the rendered history after SSH, Telnet, or serial drops. It stays in memory, capped at the existing scrollback, and is not written to a new log file. The SSH session and resource probes still stop. Reconnect starts a fresh screen. Turn off to keep only the visible screen."
+                        : "默认开启，旧配置没写过这一项时也是开启。SSH、Telnet 或串口断开后仍可滚动已渲染的历史。只留在内存里，不超过现有回滚上限，不另写日志文件。SSH 和资源探测仍会停。重新连接是新的一屏。关掉则只留当前屏幕。";
+                    Switch {
+                        on: root.keep-disconnect-scrollback;
+                        toggled(v) => { root.keep-disconnect-scrollback = v; root.set-keep-disconnect-scrollback(v); }
+                    }
+                }
+                SettingRow {
                     label: root.lang-en ? "Shortcuts" : "快捷键";
                     GhostButton {
                         text: root.lang-en ? "Show shortcuts" : "查看快捷键";
@@ -759,8 +771,8 @@ export component InterfacePanel inherits Rectangle {
                 SettingRow {
                     label: root.lang-en ? "Keep monitoring in the background" : "后台持续监控";
                     desc: root.lang-en
-                        ? "Off by default. Local speed and ICMP follow one policy. Minimized or hidden: no sample. Unfocused: about every 5 seconds. Sidebar collapse or focus mode: no sample, even when this is on. None of those states redraw. Seconds without a sample are empty slots, not a copy or a bridge of the previous value. On: hidden and unfocused keep sampling about once a second, still without redrawing. The speed view freezes ICMP history for the same host; a different host or a disconnect clears it. Previously ICMP pinged about once a second whenever a target was set, including while hidden. This switch does not stop SSH keepalive, file transfer, session logs, or remote resource monitoring."
-                        : "默认关闭。本机速度和 ICMP 用同一套策略。最小化或隐藏时不采集；失焦大约每 5 秒采集一次；收起侧栏或专注模式即使打开也不采集。这些状态都不重绘。没有样本的秒是空槽，不会抄上一次的值，也不会把前后连成没有缺口的曲线。打开后，隐藏和失焦仍大约每秒采集，仍然不重绘。速度视图冻结同一主机的 ICMP 历史；换主机或断开会清掉。以前只要有目标，ICMP 大约每秒都 ping，隐藏时也一样。这个开关不会停止 SSH 保活、文件传输、会话日志或远端资源监控。";
+                        ? "Off by default. Local speed and ICMP for a live connection follow one policy. Minimized or hidden: no sample. Unfocused: about every 5 seconds. Sidebar collapse or focus mode: no sample, even when this is on. None of those states redraw. Seconds without a sample are empty slots, not a copy or a bridge of the previous value. On: hidden and unfocused keep sampling about once a second, still without redrawing. Each connection keeps its own bounded ICMP series across tab switches. Disconnect stops that connection's probes even when this is on. Reconnect starts empty. This switch does not stop SSH keepalive, file transfer, session logs, or remote resource monitoring."
+                        : "默认关闭。本机速度和仍连接着的 ICMP 用同一套策略。最小化或隐藏时不采集；失焦大约每 5 秒采集一次；收起侧栏或专注模式即使打开也不采集。这些状态都不重绘。没有样本的秒是空槽，不会抄上一次的值，也不会把前后连成没有缺口的曲线。打开后，隐藏和失焦仍大约每秒采集，仍然不重绘。每个连接自己留一份有上限的 ICMP 历史，切换标签不会清掉别人的。断开后即使打开也不再探测这条连接。重新连接从空曲线开始。这个开关不会停止 SSH 保活、文件传输、会话日志或远端资源监控。";
                     Switch {
                         on: root.background-monitor;
                         toggled(v) => { root.background-monitor = v; root.set-background-monitor(v); }

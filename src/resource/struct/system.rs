@@ -62,6 +62,9 @@ pub(crate) struct TabStatus {
     /// ICMP target for the local panel's latency mode. Empty for local shells,
     /// serial sessions, and any host that is not a plain name or address.
     pub(crate) probe_host: String,
+    /// Increments each time this tab starts or reconnects a session. Pumps
+    /// from the previous generation drop their events.
+    pub(crate) conn_generation: u64,
     /// SSH, Telnet, and RDP labels can be masked. Local shells and serial
     /// sessions keep their device names.
     /// Recorded for SSH/Telnet/RDP tabs. The left list masks from the saved

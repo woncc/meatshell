@@ -268,6 +268,7 @@ fn fresh_config() -> ConfigFile {
         wallpaper_overlay: DEFAULT_WALLPAPER_OVERLAY,
         defaults_rev: DEFAULTS_REV,
         local_panel_metric: "latency".to_string(),
+        keep_disconnect_scrollback: true,
         ..ConfigFile::default()
     }
 }
@@ -1360,6 +1361,16 @@ impl ConfigStore {
 
     pub fn set_background_monitor(&mut self, on: bool) {
         self.cache.background_monitor = on;
+    }
+
+    /// Disconnect scrollback. On when the key is missing, so older configs
+    /// gain the ability to scroll after a drop. An explicit false stays off.
+    pub fn keep_disconnect_scrollback(&self) -> bool {
+        self.cache.keep_disconnect_scrollback
+    }
+
+    pub fn set_keep_disconnect_scrollback(&mut self, on: bool) {
+        self.cache.keep_disconnect_scrollback = on;
     }
 
     /// Sidebar local speed/latency block. On unless the user hid it.
@@ -2501,6 +2512,12 @@ mod tests {
             serde_json::from_str(r#"{"local_panel_metric":"latency"}"#).unwrap();
         assert_eq!(latency.local_panel_metric, "latency");
         assert!(!latency.background_monitor);
+        let missing: ConfigFile = serde_json::from_str("{}").unwrap();
+        assert!(missing.keep_disconnect_scrollback);
+        let off: ConfigFile =
+            serde_json::from_str(r#"{"keep_disconnect_scrollback":false}"#).unwrap();
+        assert!(!off.keep_disconnect_scrollback);
+        assert!(fresh.keep_disconnect_scrollback);
     }
 
     #[test]
