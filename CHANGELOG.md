@@ -22,8 +22,8 @@ Changes since v0.7.12. The seven upstream patches already shipped in v0.7.12 are
 
 此前已发布，不是本版新增 / Already released, not new here
 
-- v0.7.12 已包含 #28 的 7 个上游提交：串口下拉 `8fc6870`、macOS 不建托盘 `fd83068`、macOS Touch Bar `69500e5`、命令历史定位最新 `68d48f2`、死代码清理 `4302e14`、vt100 0.16.2 `80db320`、窗口置顶和 Windows 对话框父窗口 `0527db7`。更完整的对照在尚未合入的文档 PR #31，本版不重复那份审计。
-  v0.7.12 already contains the seven #28 upstream commits listed above. The fuller comparison is in unmerged docs PR #31; this release does not repeat that audit.
+- v0.7.12 已包含 #28 的 7 个上游提交：串口下拉 `8fc6870`、macOS 不建托盘 `fd83068`、macOS Touch Bar `69500e5`、命令历史定位最新 `68d48f2`、死代码清理 `4302e14`、vt100 0.16.2 `80db320`、窗口置顶和 Windows 对话框父窗口 `0527db7`。完整对照见已合入的 docs/upstream-sync.md（PR #31），本版不重复那份审计。
+  v0.7.12 already contains the seven #28 upstream commits listed above. The fuller comparison is in the merged docs/upstream-sync.md (PR #31); this release does not repeat that audit.
 
 已确认因缺陷未采用 / Not taken because of known defects
 
