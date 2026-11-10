@@ -15,8 +15,10 @@ Changes since v0.7.12. The seven upstream patches already shipped in v0.7.12 are
 
 其他 / Other
 
-- 发布：macOS 作业从 2026-11-02 退役的 `macos-14` 改到 `macos-15`。仍是 Apple Silicon 本机构建加 Intel 交叉编译这两项，矩阵没有扩大。更换 runner 不等于 macOS 安装包已经验证可用，以本版本的实际构建结果为准。
-  Release: macOS jobs move from the `macos-14` runner retired on 2026-11-02 to `macos-15`. Still one Apple Silicon build and one Intel cross-compile; the matrix is not expanded. Changing the runner does not by itself prove the macOS packages work.
+- 相对已发布的 v0.7.12：该标签实际只有 Windows zip 和 msi。`ddaf2b7` 已把发布工作流从临时的仅 Windows 矩阵恢复为原有完整任务（Linux x86_64 / aarch64、glibc 2.28、Flatpak、macOS 两个架构）。打上本版 tag 后这些任务会再次运行。恢复构建任务不等于安装包已经生成或经过实机验证；本版本目前还没有这些多平台资产。
+  Compared with published v0.7.12, which shipped only the Windows zip and msi, `ddaf2b7` already restored the previous full release jobs (Linux x86_64/aarch64, glibc 2.28, Flatpak, and both macOS architectures). Those jobs run again when this version is tagged. Restoring the jobs does not mean the packages have been built or checked on a device; this version does not yet have those multi-platform assets.
+- 相对 `ddaf2b7` 已恢复的 `release.yml`，这次只把 2026-11-02 退役的 `macos-14` 换成 `macos-15`（Apple Silicon 本机，以及在 Apple Silicon 上交叉编译 Intel）。没有新增作业。更换 runner 也不等于 macOS 安装包已经构建成功。
+  Against that already restored `release.yml`, this change only replaces retired `macos-14` with `macos-15` (native Apple Silicon, plus an Intel cross-compile on Apple Silicon). No job was added. The runner change does not mean a macOS package has been built.
 
 此前已发布，不是本版新增 / Already released, not new here
 
