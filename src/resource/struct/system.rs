@@ -64,6 +64,9 @@ pub(crate) struct TabStatus {
     pub(crate) probe_host: String,
     /// SSH, Telnet, and RDP labels can be masked. Local shells and serial
     /// sessions keep their device names.
+    /// Recorded for SSH/Telnet/RDP tabs. The left list masks from the saved
+    /// session (#48); this flag is no longer read by the resource sidebar.
+    #[allow(dead_code)]
     pub(crate) redactable: bool,
 }
 
