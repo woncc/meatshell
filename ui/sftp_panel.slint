@@ -950,6 +950,22 @@ export component SftpPanel inherits Rectangle {
                 file-area := Rectangle {
                     vertical-stretch: 1;
                     clip: true;
+                    // Backspace goes up only while this list, not a path or
+                    // rename field, holds focus (#55).
+                    file-keys := FocusScope {
+                        key-pressed(event) => {
+                            if (path-input.has-focus || compact-path-input.has-focus) {
+                                return reject;
+                            }
+                            if (event.text == Key.Backspace) {
+                                if (!root.loading && root.current-path != "" && root.current-path != "/") {
+                                    root.navigate("..");
+                                }
+                                return accept;
+                            }
+                            return reject;
+                        }
+                    }
                     ScrollView {
                         width: parent.width;
                         height: parent.height;
@@ -983,7 +999,7 @@ export component SftpPanel inherits Rectangle {
 
                                 row-ta := TouchArea {
                                     mouse-cursor: pointer;
-                                    clicked => { root.selected-row = i; }
+                                    clicked => { root.selected-row = i; file-keys.focus(); }
                                     double-clicked => {
                                         if (entry.is-dir) {
                                             root.navigate(entry.full-path);

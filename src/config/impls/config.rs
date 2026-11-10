@@ -751,6 +751,7 @@ impl ConfigStore {
 
     pub fn remove(&mut self, id: &str) {
         self.cache.sessions.retain(|s| s.id != id);
+        self.cache.pinned_sessions.retain(|saved| saved != id);
     }
 
     pub fn get(&self, id: &str) -> Option<&Session> {
@@ -1695,6 +1696,14 @@ impl ConfigStore {
         &self.cache.groups
     }
 
+    pub fn pinned_groups(&self) -> &[String] {
+        &self.cache.pinned_groups
+    }
+
+    pub fn pinned_sessions(&self) -> &[String] {
+        &self.cache.pinned_sessions
+    }
+
     pub fn collapsed_session_groups(&self) -> Option<&[String]> {
         self.cache.collapsed_session_groups.as_deref()
     }
@@ -1766,6 +1775,11 @@ impl ConfigStore {
         }
     }
 
+    /// The sidebar only confirms deletion of an empty group (#49).
+    pub fn group_has_sessions(&self, name: &str) -> bool {
+        self.cache.sessions.iter().any(|session| session.group == name)
+    }
+
     /// Delete a group. Any session still in it falls back to ungrouped — the UI
     /// only offers delete on empty groups, but we clear sessions defensively.
     pub fn remove_group(&mut self, name: &str) {
@@ -1781,6 +1795,42 @@ impl ConfigStore {
                 s.group.clear();
             }
         }
+        self.cache.pinned_groups.retain(|group| group != name);
+    }
+
+    pub fn toggle_pinned_group(&mut self, name: &str) -> bool {
+        let name = name.trim();
+        if name.is_empty() || is_reserved_session_group(name) || !self.session_group_exists(name) {
+            return false;
+        }
+        if let Some(index) = self
+            .cache
+            .pinned_groups
+            .iter()
+            .position(|group| group == name)
+        {
+            self.cache.pinned_groups.remove(index);
+        } else {
+            self.cache.pinned_groups.push(name.to_string());
+        }
+        true
+    }
+
+    pub fn toggle_pinned_session(&mut self, id: &str) -> bool {
+        if self.cache.sessions.iter().all(|session| session.id != id) {
+            return false;
+        }
+        if let Some(index) = self
+            .cache
+            .pinned_sessions
+            .iter()
+            .position(|saved| saved == id)
+        {
+            self.cache.pinned_sessions.remove(index);
+        } else {
+            self.cache.pinned_sessions.push(id.to_string());
+        }
+        true
     }
 
     /// Rename a group, moving its sessions along. No-op for reserved names.
@@ -1956,6 +2006,33 @@ mod tests {
             cache: ConfigFile::default(),
             key: [7u8; 32],
         }
+    }
+
+    #[test]
+    fn pins_round_trip_and_a_non_empty_group_is_not_empty() {
+        let missing: ConfigFile = serde_json::from_str("{}").unwrap();
+        assert!(missing.pinned_groups.is_empty());
+        assert!(missing.pinned_sessions.is_empty());
+
+        let mut store = temp_store();
+        let mut host = Session::new_empty();
+        host.id = "b".into();
+        host.user = "alice".into();
+        host.group = "lab".into();
+        store.cache.sessions = vec![host];
+        store.cache.groups = vec!["lab".into()];
+        assert!(store.group_has_sessions("lab"));
+        assert!(!store.group_has_sessions("empty"));
+        assert!(store.toggle_pinned_group("lab"));
+        assert!(store.toggle_pinned_session("b"));
+        assert_eq!(store.pinned_groups(), ["lab"]);
+        assert_eq!(store.pinned_sessions(), ["b"]);
+        let again: ConfigFile = serde_json::from_str(&serde_json::to_string(&store.cache).unwrap()).unwrap();
+        assert_eq!(again.pinned_groups, vec!["lab".to_string()]);
+        assert_eq!(again.pinned_sessions, vec!["b".to_string()]);
+        assert_eq!(again.sessions[0].user, "alice");
+        assert!(store.toggle_pinned_session("b"));
+        assert!(store.pinned_sessions().is_empty());
     }
 
     #[test]

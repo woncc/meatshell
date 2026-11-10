@@ -167,6 +167,13 @@ pub struct ConfigFile {
     /// `Some([])` means the user explicitly expanded every folder.
     #[serde(default)]
     pub collapsed_session_groups: Option<Vec<String>>,
+    /// User groups pinned to the top of the session list (#49). Order is the
+    /// pin order. Missing on old configs, which stay unpinned.
+    #[serde(default)]
+    pub pinned_groups: Vec<String>,
+    /// Saved sessions pinned above their siblings in the same group (#49).
+    #[serde(default)]
+    pub pinned_sessions: Vec<String>,
     /// Stored inverted ("don't follow") so both serde and the Default derive
     /// yield `false` = the feature defaults to ON: the SFTP panel follows the
     /// terminal's cd (OSC 7) unless the user opts out in Interface settings.
