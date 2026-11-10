@@ -179,7 +179,7 @@ Windows 不能把密码放在 `mstsc` 命令行。实现是把 DPAPI 密文写�
 产品二进制里没有 `curl | sh`。发布工作流里有：
 
 - Debian 10 兼容任务把 `https://sh.rustup.rs` 管道给 `sh`（`.github/workflows/release.yml:389-390` 与 `481-482`）。这是官方 rustup 安装方式，仍然是远程脚本执行，且没有单独的校验和。
-- x86_64 AppImage 步骤 `wget` **continuous** 通道的 `linuxdeploy` 与插件，没有 sha256（`.github/workflows/release.yml:129-132`）。`continue-on-error: true`。一个被替换的 continuous 构建可以进入对外发布的 AppImage。该步骤只在打 `v*` 标签或手动跑 workflow 时执行。
+- x86_64 AppImage 步骤 `wget` **continuous** 通道的 `linuxdeploy` 与插件，没有 sha256（`.github/workflows/release.yml:129-132`）。`continue-on-error: true`。一个被替换的 continuous 构建可以进入对外发布的 AppImage。该步骤只在打 `v*` 标签或手动跑 workflow 时执行。默认 Release 工作流现已去掉 Linux、AppImage、Flatpak、glibc 和 Intel macOS 作业，不再启动它们；v0.7.13 已经发布的那些资产不删除。上面的行号是改动前的位置。
 
 对照：Caddy 测试二进制有 sha256（`.github/workflows/remote-mcp.yml:55-58`）。`verify-published-mcp.yml:29-33` 固定了 ZIP 哈希，并 checkout 固定 commit `c81e7860…`。AUR 工作流即使配置了 `AUR_SSH_PRIVATE_KEY`，也要求 `github.repository == 'yituorou/meatshell'` 且非 prerelease（`.github/workflows/aur-publish.yml:22-25`），本 fork 不会因此推到上游 AUR。
 

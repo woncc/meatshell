@@ -39,7 +39,9 @@ MeatShell 是用 **Rust + [Slint](https://slint.dev)** 编写的跨平台 SSH �
 | --- | --- |
 | Windows | `.zip` 或 `.msi` |
 | Linux | `.AppImage`、`.deb`、`.flatpak` 或 `.tar.gz` |
-| macOS | 包含 `meatshell.app` 的 `.zip`，提供 Apple Silicon 与 Intel 版本 |
+| macOS | 包含 `meatshell.app` 的 `.zip`。v0.7.13 同时有 Apple Silicon 与 Intel。下一次发布起，默认新构建只有 Apple Silicon |
+
+v0.7.13 已发布的 Linux 与 Intel macOS 包仍可下载。之后的默认构建不再生成它们。
 
 启动后点击 **新建会话**，填入目标主机及认证方式。首次连接需确认主机密钥；请先核对指纹。Linux 的 tar 包可解压后直接运行 `./meatshell`，也可使用包内的 `install-linux.sh`。源码构建可运行：
 
