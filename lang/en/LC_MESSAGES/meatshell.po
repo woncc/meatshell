@@ -282,6 +282,18 @@ msgstr "Edit group"
 msgid "Delete group"
 msgstr "Delete group"
 
+msgid "Pin"
+msgstr "Pin"
+
+msgid "Unpin"
+msgstr "Unpin"
+
+msgid "Pin group"
+msgstr "Pin group"
+
+msgid "Unpin group"
+msgstr "Unpin group"
+
 msgid "Group name"
 msgstr "Group name"
 

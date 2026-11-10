@@ -79,16 +79,24 @@ component SessionRow inherits Rectangle {
                 horizontal-alignment: center;
                 vertical-alignment: center;
             }
+            if pin-host.has-hover : Text {
+                y: 18px;
+                text: root.session.pinned ? @tr("Unpin") : @tr("Pin");
+                color: Theme.text-primary;
+                font-size: Theme.fs-xs;
+            }
         }
         Rectangle {
             width: 18px; height: 18px;
             edit-host := TouchArea { mouse-cursor: pointer; clicked => { root.edit(); } }
             Text { text: "\u{E3C9}"; font-family: "Material Icons"; color: Theme.text-secondary; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+            if edit-host.has-hover : Text { y: 18px; text: @tr("Edit"); color: Theme.text-primary; font-size: Theme.fs-xs; }
         }
         Rectangle {
             width: 18px; height: 18px;
             del-host := TouchArea { mouse-cursor: pointer; clicked => { root.remove(); } }
             Text { text: "\u{E872}"; font-family: "Material Icons"; color: #cc3333; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+            if del-host.has-hover : Text { y: 18px; text: @tr("Delete"); color: Theme.text-primary; font-size: Theme.fs-xs; }
         }
     }
 
@@ -831,23 +839,26 @@ export component Welcome inherits Rectangle {
                                 spacing: 2px;
                                 Rectangle {
                                     width: 18px; height: 18px;
-                                    TouchArea { mouse-cursor: pointer; clicked => { root.pin-group(session.group-header); } }
+                                    pin-group := TouchArea { mouse-cursor: pointer; clicked => { root.pin-group(session.group-header); } }
                                     Text { text: "\u{F10D}"; font-family: "Material Icons"; color: session.group-pinned ? Theme.accent : Theme.text-muted; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+                                    if pin-group.has-hover : Text { y: 18px; text: session.group-pinned ? @tr("Unpin group") : @tr("Pin group"); color: Theme.text-primary; font-size: Theme.fs-xs; }
                                 }
                                 Rectangle {
                                     width: 18px; height: 18px;
-                                    TouchArea { mouse-cursor: pointer; clicked => { root.edit-group(session.group-header); } }
+                                    edit-group-icon := TouchArea { mouse-cursor: pointer; clicked => { root.edit-group(session.group-header); } }
                                     Text { text: "\u{E3C9}"; font-family: "Material Icons"; color: Theme.text-secondary; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+                                    if edit-group-icon.has-hover : Text { y: 18px; text: @tr("Edit group"); color: Theme.text-primary; font-size: Theme.fs-xs; }
                                 }
                                 if session.id == "" : Rectangle {
                                     width: 18px; height: 18px;
-                                    TouchArea { mouse-cursor: pointer; clicked => {
+                                    del-group-icon := TouchArea { mouse-cursor: pointer; clicked => {
                                         root.confirm-kind = "group";
                                         root.confirm-target = session.group;
                                         root.confirm-text = @tr("Delete this empty group? Sessions are not deleted.");
                                         root.confirm-open = true;
                                     } }
                                     Text { text: "\u{E872}"; font-family: "Material Icons"; color: #cc3333; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+                                    if del-group-icon.has-hover : Text { y: 18px; text: @tr("Delete group"); color: Theme.text-primary; font-size: Theme.fs-xs; }
                                 }
                             }
                         }
