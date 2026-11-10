@@ -15,6 +15,8 @@ export struct SessionInfo {
     group-header: string, // set on the first row of each group → render a header
     collapsed: bool,      // group is collapsed → this session row is hidden
     builtin: bool,        // built-in local shell, not a saved server session
+    pinned: bool,         // this saved host is pinned within its group
+    group-pinned: bool,   // the folder named by group-header is pinned
 }
 
 // --- SessionRow ------------------------------------------------------------
@@ -28,6 +30,7 @@ component SessionRow inherits Rectangle {
     callback duplicate();
     callback move-to-group(string);
     callback remove();
+    callback pin();
     // Drag-to-reorder: direction -1 = up, 1 = down. Emitted once per row-hop.
     callback reorder(int) -> bool;
     // Drag lifecycle, owned by the Welcome list: start publishes the dragged
@@ -59,6 +62,35 @@ component SessionRow inherits Rectangle {
     property <length> grab-y;
 
     height: root.compact ? 44px : 36px;
+
+    if !root.system-row : HorizontalLayout {
+        x: parent.width - self.preferred-width - 6px;
+        y: (parent.height - 18px) / 2;
+        height: 18px;
+        spacing: 2px;
+        Rectangle {
+            width: 18px; height: 18px;
+            pin-host := TouchArea { mouse-cursor: pointer; clicked => { root.pin(); } }
+            Text {
+                text: "\u{F10D}";
+                font-family: "Material Icons";
+                color: root.session.pinned ? Theme.accent : Theme.text-muted;
+                font-size: 14px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+        Rectangle {
+            width: 18px; height: 18px;
+            edit-host := TouchArea { mouse-cursor: pointer; clicked => { root.edit(); } }
+            Text { text: "\u{E3C9}"; font-family: "Material Icons"; color: Theme.text-secondary; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+        }
+        Rectangle {
+            width: 18px; height: 18px;
+            del-host := TouchArea { mouse-cursor: pointer; clicked => { root.remove(); } }
+            Text { text: "\u{E872}"; font-family: "Material Icons"; color: #cc3333; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+        }
+    }
 
     // Remember where the right-click landed so the popup can appear there.
     property <length> ctx-x;
@@ -397,6 +429,12 @@ export component Welcome inherits Rectangle {
     callback edit-group(string /* current-name */);
     callback delete-group(string /* name */);
     callback remove-session(string);
+    callback pin-group(string);
+    callback pin-session(string);
+    property <bool> confirm-open: false;
+    property <string> confirm-kind: "";
+    property <string> confirm-target: "";
+    property <string> confirm-text: "";
     callback search-changed(string);
     callback cycle-tab(bool /* reverse */);
     // Compact mode (welcome-as-sidebar): drop the big title/tagline header and
@@ -639,6 +677,11 @@ export component Welcome inherits Rectangle {
                     }
                 }
 
+                GhostButton {
+                    text: @tr("+ New group");
+                    clicked => { root.new-group(); }
+                }
+
                 if sessions.length == 0 : Rectangle {
                     vertical-stretch: 1;
                     background: Theme.bg-root;
@@ -738,7 +781,7 @@ export component Welcome inherits Rectangle {
                                 y: gmy;
                                 width: 140px;
                                 // edit + new always; delete only for an empty group.
-                                height: (session.id == "" ? 3 : 2) * 28px + 9px;
+                                height: (session.id == "" ? 2 : 1) * 28px + 9px;
                                 Rectangle {
                                     background: Theme.popup-bg;
                                     border-radius: Theme.radius-sm;
@@ -766,26 +809,45 @@ export component Welcome inherits Rectangle {
                                             height: 28px;
                                             border-radius: Theme.radius-sm;
                                             background: dg-ta.has-hover ? #cc333320 : transparent;
-                                            dg-ta := TouchArea { mouse-cursor: pointer; clicked => { root.delete-group(session.group); } }
+                                            dg-ta := TouchArea { mouse-cursor: pointer; clicked => {
+                                                root.confirm-kind = "group";
+                                                root.confirm-target = session.group;
+                                                root.confirm-text = @tr("Delete this empty group? Sessions are not deleted.");
+                                                root.confirm-open = true;
+                                            } }
                                             HorizontalLayout {
                                                 padding-left: 10px; spacing: 8px;
                                                 Text { text: "\u{E872}"; font-family: "Material Icons"; color: #cc3333; font-size: Theme.fs-sm; vertical-alignment: center; }
                                                 Text { text: @tr("Delete group"); color: #cc3333; font-size: Theme.fs-md; vertical-alignment: center; horizontal-stretch: 1; }
                                             }
                                         }
-                                        // New group
-                                        Rectangle {
-                                            height: 28px;
-                                            border-radius: Theme.radius-sm;
-                                            background: ng-ta.has-hover ? Theme.bg-hover : transparent;
-                                            ng-ta := TouchArea { mouse-cursor: pointer; clicked => { root.new-group(); } }
-                                            HorizontalLayout {
-                                                padding-left: 10px; spacing: 8px;
-                                                Text { text: "\u{E2CC}"; font-family: "Material Icons"; color: Theme.text-secondary; font-size: Theme.fs-sm; vertical-alignment: center; }
-                                                Text { text: @tr("New group"); color: Theme.text-primary; font-size: Theme.fs-md; vertical-alignment: center; horizontal-stretch: 1; }
-                                            }
-                                        }
                                     }
+                                }
+                            }
+                            if session.group-header != "system" && session.group-header != "default" : HorizontalLayout {
+                                x: parent.width - self.preferred-width - 4px;
+                                y: 4px;
+                                height: 18px;
+                                spacing: 2px;
+                                Rectangle {
+                                    width: 18px; height: 18px;
+                                    TouchArea { mouse-cursor: pointer; clicked => { root.pin-group(session.group-header); } }
+                                    Text { text: "\u{F10D}"; font-family: "Material Icons"; color: session.group-pinned ? Theme.accent : Theme.text-muted; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                                Rectangle {
+                                    width: 18px; height: 18px;
+                                    TouchArea { mouse-cursor: pointer; clicked => { root.edit-group(session.group-header); } }
+                                    Text { text: "\u{E3C9}"; font-family: "Material Icons"; color: Theme.text-secondary; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                                if session.id == "" : Rectangle {
+                                    width: 18px; height: 18px;
+                                    TouchArea { mouse-cursor: pointer; clicked => {
+                                        root.confirm-kind = "group";
+                                        root.confirm-target = session.group;
+                                        root.confirm-text = @tr("Delete this empty group? Sessions are not deleted.");
+                                        root.confirm-open = true;
+                                    } }
+                                    Text { text: "\u{E872}"; font-family: "Material Icons"; color: #cc3333; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
                                 }
                             }
                         }
@@ -813,9 +875,58 @@ export component Welcome inherits Rectangle {
                                 root.drag-id = "";
                                 root.reorder-end();
                             }
-                            remove => { root.remove-session(session.id); }
+                            pin => { root.pin-session(session.id); }
+                            remove => {
+                                root.confirm-kind = "session";
+                                root.confirm-target = session.id;
+                                root.confirm-text = @tr("Delete this session? This cannot be undone.");
+                                root.confirm-open = true;
+                            }
                         }
                     }
+                    }
+                }
+            }
+        }
+    }
+
+    if root.confirm-open : Rectangle {
+        background: #00000066;
+        TouchArea { clicked => { root.confirm-open = false; } }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 300px;
+            height: confirm-box.preferred-height;
+            background: Theme.popup-bg;
+            border-radius: Theme.radius-md;
+            border-width: 1px;
+            border-color: Theme.border-strong;
+            TouchArea {}
+            confirm-box := VerticalLayout {
+                padding: 16px;
+                spacing: 12px;
+                Text {
+                    text: root.confirm-text;
+                    color: Theme.text-primary;
+                    font-size: Theme.fs-md;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    GhostButton { text: @tr("Cancel"); clicked => { root.confirm-open = false; } }
+                    PrimaryButton {
+                        text: @tr("Delete");
+                        clicked => {
+                            if (root.confirm-kind == "group") {
+                                root.delete-group(root.confirm-target);
+                            } else {
+                                root.remove-session(root.confirm-target);
+                            }
+                            root.confirm-open = false;
+                            root.confirm-target = "";
+                        }
                     }
                 }
             }

@@ -164,6 +164,23 @@ fn session_matches_query(session: &Session, query: &str) -> bool {
     session_matches_normalized_query(session, &query)
 }
 
+fn pin_first(items: Vec<String>, pinned: &[String]) -> Vec<String> {
+    let mut front = Vec::new();
+    for name in pinned {
+        if items.iter().any(|item| item == name) && !front.iter().any(|item| item == name) {
+            front.push(name.clone());
+        }
+    }
+    let mut rest = Vec::new();
+    for item in items {
+        if !front.iter().any(|pinned| pinned == &item) {
+            rest.push(item);
+        }
+    }
+    front.extend(rest);
+    front
+}
+
 fn build_session_rows(
     sessions: &[Session],
     explicit_groups: &[String],
@@ -171,6 +188,8 @@ fn build_session_rows(
     builtin_sessions: &[Session],
     query: &str,
     hide_identity: bool,
+    pinned_groups: &[String],
+    pinned_sessions: &[String],
 ) -> Vec<SessionInfo> {
     // Group sessions by their `group` (named groups alphabetically, ungrouped
     // last), then by name within each group, and tag the first row of every
@@ -209,11 +228,10 @@ fn build_session_rows(
     named.sort_by_key(|g| g.to_lowercase());
     named.dedup();
 
-    let mut display_groups: Vec<String> = Vec::new();
+    let mut display_groups: Vec<String> = pin_first(named, pinned_groups);
     if has_default {
-        display_groups.push("default".to_string());
+        display_groups.insert(0, "default".to_string());
     }
-    display_groups.extend(named);
 
     // Placeholder row for an empty folder; id == "" marks it as a group header
     // with no session (used by the UI to gate the "delete group" action).
@@ -230,6 +248,8 @@ fn build_session_rows(
         group_header: group.into(),
         collapsed: group_is_collapsed(group),
         builtin: false,
+        pinned: false,
+        group_pinned: pinned_groups.iter().any(|pinned| pinned == group),
     };
 
     let mut rows: Vec<SessionInfo> = Vec::new();
@@ -251,6 +271,8 @@ fn build_session_rows(
             group_header: if i == 0 { "system".into() } else { "".into() },
             collapsed: group_is_collapsed("system"),
             builtin: true,
+            pinned: false,
+            group_pinned: false,
         });
     }
     for group in &display_groups {
@@ -268,9 +290,16 @@ fn build_session_rows(
                 .filter(|session| &session.group == group && matches(session))
                 .collect()
         };
-        // No alphabetical sort: the stored Vec order is the user's manual
-        // order, maintained by drag-to-reorder (same convention as quick
-        // commands). New sessions land at the end of their group.
+        // Stored order, with pinned hosts of this group moved to the front
+        // and the relative order of each part kept (#49).
+        let mut gs = gs;
+        gs.sort_by_key(|session| {
+            pinned_sessions
+                .iter()
+                .position(|id| id == &session.id)
+                .map(|index| index as isize)
+                .unwrap_or(isize::MAX)
+        });
         if gs.is_empty() && !searching {
             rows.push(blank(group));
         } else {
@@ -320,6 +349,8 @@ fn build_session_rows(
                     },
                     collapsed: group_is_collapsed(group),
                     builtin: false,
+                    pinned: pinned_sessions.iter().any(|id| id == &s.id),
+                    group_pinned: i == 0 && pinned_groups.iter().any(|pinned| pinned == group),
                 });
             }
         }
@@ -341,6 +372,8 @@ pub(super) fn sync_sessions_to_model_with_filter(
         &builtin_sessions,
         query,
         hide_identity,
+        store.pinned_groups(),
+        store.pinned_sessions(),
     ));
 }
 
@@ -365,6 +398,8 @@ pub(super) fn refresh_session_rows_in_place(
         &builtin_sessions,
         query,
         hide_identity,
+        store.pinned_groups(),
+        store.pinned_sessions(),
     );
     if rows.len() == model.row_count() {
         for (i, row) in rows.into_iter().enumerate() {
@@ -681,7 +716,16 @@ mod search_tests {
         let groups = vec!["empty".to_string(), "prod".to_string()];
         let collapsed = vec!["prod".to_string(), "system".to_string()];
 
-        let rows = build_session_rows(&saved, &groups, Some(&collapsed), &builtins, "prod", false);
+        let rows = build_session_rows(
+            &saved,
+            &groups,
+            Some(&collapsed),
+            &builtins,
+            "prod",
+            false,
+            &[],
+            &[],
+        );
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].name.as_str(), "Prod API");
@@ -700,6 +744,8 @@ mod search_tests {
             &builtins,
             "LOCALHOST",
             false,
+            &[],
+            &[],
         );
 
         assert_eq!(rows.len(), 1);
@@ -714,9 +760,46 @@ mod search_tests {
         let saved = vec![session("1", "Prod API", "10.0.0.8", "prod")];
         let builtins = vec![session("local", "Local terminal", "localhost", "system")];
 
-        let rows = build_session_rows(&saved, &[], None, &builtins, "staging", false);
+        let rows = build_session_rows(&saved, &[], None, &builtins, "staging", false, &[], &[]);
 
         assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn pinned_groups_and_hosts_lead_without_reordering_the_rest() {
+        let mut first = session("a", "A", "a.example", "ops");
+        let mut second = session("b", "B", "b.example", "ops");
+        let mut other = session("c", "C", "c.example", "lab");
+        first.id = "a".into();
+        second.id = "b".into();
+        other.id = "c".into();
+        let saved = vec![first, second, other];
+        let rows = build_session_rows(
+            &saved,
+            &["ops".into(), "lab".into()],
+            Some(&[]),
+            &[],
+            "",
+            false,
+            &["lab".into()],
+            &["b".into()],
+        );
+        let headers: Vec<_> = rows
+            .iter()
+            .filter(|row| !row.group_header.is_empty())
+            .map(|row| row.group_header.to_string())
+            .collect();
+        assert_eq!(headers, vec!["lab".to_string(), "ops".to_string()]);
+        let ops: Vec<_> = rows
+            .iter()
+            .filter(|row| row.group.as_str() == "ops" && !row.id.is_empty())
+            .map(|row| row.id.to_string())
+            .collect();
+        assert_eq!(ops, vec!["b".to_string(), "a".to_string()]);
+        assert!(rows.iter().any(|row| row.id.as_str() == "b" && row.pinned));
+        assert!(rows
+            .iter()
+            .any(|row| row.group_header.as_str() == "lab" && row.group_pinned));
     }
 
     #[test]
@@ -725,7 +808,7 @@ mod search_tests {
         let groups = vec!["empty".to_string(), "prod".to_string()];
         let collapsed = vec!["prod".to_string()];
 
-        let rows = build_session_rows(&saved, &groups, Some(&collapsed), &[], "", false);
+        let rows = build_session_rows(&saved, &groups, Some(&collapsed), &[], "", false, &[], &[]);
 
         assert!(rows
             .iter()
@@ -768,7 +851,7 @@ mod serial_display_tests {
             session.data_bits = bits;
             session.parity = parity.into();
             session.stop_bits = stops;
-            let rows = build_session_rows(&[session], &[], None, &[], "", false);
+            let rows = build_session_rows(&[session], &[], None, &[], "", false, &[], &[]);
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0].serial_detail.as_str(), expected);
         }
@@ -782,7 +865,7 @@ mod serial_display_tests {
             session.host = "example.com".into();
             session.port = 2222;
             session.user = "alice".into();
-            let rows = build_session_rows(&[session], &[], None, &[], "", false);
+            let rows = build_session_rows(&[session], &[], None, &[], "", false, &[], &[]);
             assert!(rows[0].serial_detail.is_empty());
             assert_eq!(rows[0].host.as_str(), "example.com");
             assert_eq!(rows[0].port, 2222);
@@ -802,7 +885,7 @@ mod serial_display_tests {
         serial.kind = SessionKind::Serial;
         serial.serial_port = "COM3".into();
         serial.name = "console".into();
-        let rows = build_session_rows(&[ssh, serial], &[], Some(&[]), &[], "", true);
+        let rows = build_session_rows(&[ssh, serial], &[], Some(&[]), &[], "", true, &[], &[]);
         let ssh_row = rows.iter().find(|row| row.host.as_str() == "****").unwrap();
         assert_eq!(ssh_row.user.as_str(), "****");
         assert_eq!(ssh_row.port, 0, "the list must not keep the real port");

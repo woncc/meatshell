@@ -1103,6 +1103,14 @@ pub(super) fn wire_session_callbacks(
         let sessions_model = sessions_model.clone();
         let registry = registry.clone();
         window.on_delete_group(move |name: SharedString| {
+            if store
+                .borrow()
+                .sessions()
+                .iter()
+                .any(|session| session.group == name.as_str())
+            {
+                return;
+            }
             {
                 let mut s = store.borrow_mut();
                 s.remove_group(&name.to_string());
@@ -1114,6 +1122,50 @@ pub(super) fn wire_session_callbacks(
             registry.broadcast_config_changed();
             if let Some(w) = weak.upgrade() {
                 let _ = w.get_sessions();
+            }
+        });
+    }
+    {
+        let weak = window.as_weak();
+        let store = store.clone();
+        let sessions_model = sessions_model.clone();
+        let registry = registry.clone();
+        window.on_pin_group(move |name: SharedString| {
+            let changed = {
+                let mut settings = store.borrow_mut();
+                let changed = settings.toggle_pinned_group(name.as_str());
+                if changed {
+                    if let Err(err) = settings.save() {
+                        tracing::warn!("failed to save config: {err:#}");
+                    }
+                }
+                changed
+            };
+            if changed {
+                sync_sessions_for_window(&weak, &store.borrow(), &sessions_model);
+                registry.broadcast_config_changed();
+            }
+        });
+    }
+    {
+        let weak = window.as_weak();
+        let store = store.clone();
+        let sessions_model = sessions_model.clone();
+        let registry = registry.clone();
+        window.on_pin_session(move |id: SharedString| {
+            let changed = {
+                let mut settings = store.borrow_mut();
+                let changed = settings.toggle_pinned_session(id.as_str());
+                if changed {
+                    if let Err(err) = settings.save() {
+                        tracing::warn!("failed to save config: {err:#}");
+                    }
+                }
+                changed
+            };
+            if changed {
+                sync_sessions_for_window(&weak, &store.borrow(), &sessions_model);
+                registry.broadcast_config_changed();
             }
         });
     }
@@ -1814,7 +1866,9 @@ pub(super) fn wire_session_callbacks(
         let panes_model = panes_for_reuse.clone();
         let splitters_model = splitters_for_reuse.clone();
         let bufs = bufs.clone();
-        let arbiter = Rc::new(RefCell::new(super::connection_policy::ClickArbiter::default()));
+        let arbiter = Rc::new(RefCell::new(
+            super::connection_policy::ClickArbiter::default(),
+        ));
         let timer = Rc::new(slint::Timer::default());
         let pending_extra = Rc::new(RefCell::new(None::<String>));
 
