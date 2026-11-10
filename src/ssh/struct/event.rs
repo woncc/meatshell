@@ -195,5 +195,8 @@ impl SessionHandle {
 
     pub fn close(&self) {
         let _ = self.commands.send(SessionCommand::Close);
+        // Detach-on-drop leaves the task running. Abort releases the socket
+        // and the remote monitor loops when the tab or window goes away.
+        self.join.abort();
     }
 }

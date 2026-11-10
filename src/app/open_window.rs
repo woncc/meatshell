@@ -869,16 +869,20 @@ pub(super) fn open_window(
             if matches!(presence, crate::resource::latency::PanelPresence::Unfocused) {
                 bg_tick = bg_tick.wrapping_add(1);
             }
-            let host = active_probe_host(&window, &tick_statuses);
+            let probe = active_probe_binding(&window, &tick_statuses);
             let decision = crate::resource::latency::monitor_tick(
                 presence,
                 window.get_background_monitor(),
                 window.get_local_latency_mode(),
-                !host.is_empty(),
+                !probe.host.is_empty(),
                 bg_tick,
             );
             // Mode follows the window even when the sidebar is not redrawn.
-            tick_local.latency.set_target(&host);
+            // A dead connection binds an empty host, so the background switch
+            // cannot keep pinging it.
+            tick_local
+                .latency
+                .bind_connection(&probe.tab_id, &probe.host, probe.generation);
             tick_local.latency.set_mode(decision.icmp);
             if decision.sample_local {
                 let snap = {

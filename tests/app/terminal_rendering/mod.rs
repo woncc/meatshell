@@ -79,6 +79,24 @@ fn releasing_scrollback_drops_retained_history_and_replay_bytes() {
 }
 
 #[test]
+fn disconnect_can_keep_rendered_history_and_still_drops_the_raw_stream() {
+    let mut kept = make_buf(4, 20, &["earlier"], &["visible"], 0);
+    kept.raw.push_back(b'x');
+    kept.release_history_keep_screen(true);
+    assert_eq!(kept.history.len(), 1);
+    assert_eq!(kept.history[0].0, "earlier");
+    assert!(kept.raw.is_empty());
+    assert_eq!(kept.view_offset, 0);
+
+    let mut dropped = make_buf(4, 20, &["earlier"], &["visible"], 2);
+    dropped.raw.push_back(b'y');
+    dropped.release_history_keep_screen(false);
+    assert!(dropped.history.is_empty());
+    assert!(dropped.raw.is_empty());
+    assert_eq!(dropped.view_offset, 0);
+}
+
+#[test]
 fn scrollback_navigation_keys_only_handle_a_scrolled_normal_screen() {
     let mut buffer = make_buf(
         3,

@@ -100,9 +100,10 @@ pub(super) fn apply_session_event_to_window(
             // tab, its status, and the currently visible screen; only release
             // the raw replay stream and deep history, then append the
             // reconnect hint below onto what was already on screen (#451).
+            let keep_scrollback = win.get_keep_disconnect_scrollback();
             if let Some(h) = crate::app::term_buf(bufs, tab_id) {
                 let mut b = h.lock().unwrap();
-                b.release_history_keep_screen();
+                b.release_history_keep_screen(keep_scrollback);
                 if let Some(log) = b.session_log.as_mut() {
                     log.note(&format!("disconnected: {reason}"));
                 }
@@ -132,6 +133,17 @@ pub(super) fn apply_session_event_to_window(
             update_terminal(&|t| write_terminal_status(t, false, &disconnected));
             if let Some(st) = statuses.lock().unwrap().get_mut(tab_id) {
                 st.state = 2;
+                st.cpu = 0.0;
+                st.load1 = None;
+                st.mem_used_kib = 0;
+                st.mem_total_kib = 0;
+                st.swap_used_kib = 0;
+                st.swap_total_kib = 0;
+                st.net.clear();
+                st.net_hist = Default::default();
+                st.disks.clear();
+                st.procs.clear();
+                st.sys = Default::default();
             }
             if win.get_active_tab_id().as_str() == tab_id
                 && (sidebar_updates_visible(win) || win.get_system_info_window_open())
@@ -153,6 +165,11 @@ pub(super) fn apply_session_event_to_window(
             sys,
         } => {
             if let Some(st) = statuses.lock().unwrap().get_mut(tab_id) {
+                // A sample that arrives after Closed must not mark the tab
+                // connected again or paint the previous connection's numbers.
+                if st.state == 2 {
+                    return;
+                }
                 st.cpu = cpu_percent;
                 // The one-shot system-info probe shares this event and does not
                 // sample loadavg. Don't let that probe wipe a live value.

@@ -43,6 +43,10 @@ pub struct TabRoute {
     /// Kept for the life of an SSH tab so the master switch can attach or
     /// replace the SFTP worker without starting a second event pump.
     pub sftp_events: Option<tokio::sync::mpsc::UnboundedSender<crate::ssh::SessionEvent>>,
+    /// Connection generation this pump was started for. A reconnect or a
+    /// removed tab makes `TabStatus.conn_generation` disagree, and the pump
+    /// drops the rest of its queue.
+    pub conn_generation: u64,
 }
 
 /// Tab id → its current delivery route. Shared with the pump threads.

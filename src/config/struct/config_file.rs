@@ -269,6 +269,11 @@ pub struct ConfigFile {
     /// or the remote resource loops. The speed view does not ping.
     #[serde(default)]
     pub background_monitor: bool,
+    /// Keep the rendered terminal scrollback after disconnect so it can still
+    /// be scrolled. Missing values are on. The raw replay stream is still
+    /// released, and this does not keep the SSH session or resource probes.
+    #[serde(default = "default_true")]
+    pub keep_disconnect_scrollback: bool,
     /// Hide the sidebar local speed/latency block (title, toggle, and chart).
     /// Missing or false keeps it visible, so older configs are unchanged.
     #[serde(default)]
