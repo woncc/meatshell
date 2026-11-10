@@ -13,6 +13,9 @@
 export global Theme {
     // Set by Rust on startup (system detection) and on user toggle.
     in-out property <bool> dark: true;
+    // Design-reference accent only. Empty uses the built-in MeatShell accent.
+    // These ids are not Oh My Zsh themes and do not load or run any zsh file.
+    in-out property <string> reference-id: "";
 
     // --- Immersive wallpaper (set by Rust from the wallpaper module) -------
     // When a wallpaper is active the window paints `wallpaper` behind everything
@@ -84,7 +87,11 @@ export global Theme {
     out property <brush> text-secondary: dark ? #b4b9c4 : #45454a;
     out property <brush> text-muted:     dark ? #9196a3 : #606066;
 
-    out property <brush> accent:         root.wallpaper-active ? root.wp-accent          : (dark ? #4a90e2 : #0071e3);
+    out property <brush> accent: root.wallpaper-active ? root.wp-accent : (
+        root.reference-id == "robbyrussell" ? #2ea043 :
+        root.reference-id == "sunaku" ? #3fb950 :
+        root.reference-id == "sunrise" ? #b58900 :
+        (dark ? #4a90e2 : #0071e3));
     out property <brush> accent-hover:   root.wallpaper-active ? root.wp-accent.brighter(0.12) : (dark ? #5aa0f2 : #0077ed);
     out property <brush> accent-pressed: root.wallpaper-active ? root.wp-accent.darker(0.12)   : (dark ? #3a80d2 : #006adb);
 
