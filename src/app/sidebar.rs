@@ -76,6 +76,22 @@ fn present_connection(win: &AppWindow, st: &TabStatus, label: String) {
     win.set_conn_host(conn_ip(&st.host).into());
 }
 
+/// ICMP target for the active tab. Empty unless that tab is a connected
+/// SSH or Telnet session. Disconnect (`state == 2`) is not "still that host".
+pub(super) fn active_probe_host(win: &AppWindow, statuses: &TabStatuses) -> String {
+    let active = win.get_active_tab_id().to_string();
+    if active == "welcome" {
+        return String::new();
+    }
+    statuses
+        .lock()
+        .unwrap()
+        .get(&active)
+        .filter(|st| !st.is_local && st.state != 2)
+        .map(|st| st.probe_host.clone())
+        .unwrap_or_default()
+}
+
 pub(super) fn refresh_sidebar(
     win: &AppWindow,
     statuses: &TabStatuses,
@@ -260,10 +276,9 @@ pub(super) fn refresh_sidebar(
     } else {
         statuses.lock().unwrap().get(&active).cloned()
     };
-    let probe_host = status
-        .as_ref()
-        .map(|st| st.probe_host.clone())
-        .unwrap_or_default();
+    // Connected SSH/Telnet only. Disconnect, local shells, and the welcome
+    // tab clear the ICMP target instead of leaving the previous host in place.
+    let probe_host = active_probe_host(win, statuses);
 
     match status {
         // Local shell tabs: keep the connection status line, but show the local
@@ -394,11 +409,10 @@ fn apply_local_panel(
     probe_host: &str,
 ) {
     let latency_mode = win.get_local_latency_mode();
-    if latency_mode {
-        local.latency.set_target(probe_host);
-    } else {
-        local.latency.set_target("");
-    }
+    // Keep this host's samples when only the view changes. A different host,
+    // or no host, replaces them inside the probe. The 1s timer owns ICMP mode
+    // so a redraw cannot force probes while hidden.
+    local.latency.set_target(probe_host);
     let rtt = if latency_mode {
         local.latency.latest()
     } else {
@@ -407,7 +421,7 @@ fn apply_local_panel(
     let view = local_metric_view(latency_mode, snap.net_tx_per_sec, snap.net_rx_per_sec, rtt);
     win.set_local_metric_label(
         (if latency_mode {
-            t("延迟", "Latency")
+            t("ICMP 延迟", "ICMP latency")
         } else {
             t("本机速度", "Local speed")
         })
@@ -613,10 +627,45 @@ pub(super) fn wire_sidebar_refresh_and_theme(
                 }
             }
             let pref = if next_dark { "dark" } else { "light" };
+            w.set_color_reference("".into());
             {
                 let mut s = store.borrow_mut();
                 s.set_theme_pref(pref.to_string());
                 let _ = s.save();
+            }
+            registry.broadcast_config_changed();
+        });
+    }
+    {
+        let weak = window.as_weak();
+        let store = store.clone();
+        let bufs_theme = bufs.clone();
+        let registry = registry.clone();
+        window.on_set_color_reference(move |id: slint::SharedString| {
+            let Some(w) = weak.upgrade() else { return };
+            let id = id.to_string();
+            let known = matches!(id.as_str(), "" | "robbyrussell" | "sunaku" | "sunrise");
+            if !known {
+                return;
+            }
+            w.set_color_reference(id.clone().into());
+            let dark = match id.as_str() {
+                "sunrise" => false,
+                "robbyrussell" | "sunaku" => true,
+                _ => w.get_dark_mode(),
+            };
+            if matches!(id.as_str(), "sunrise" | "robbyrussell" | "sunaku") {
+                apply_dark_mode(&w, &bufs_theme, dark);
+            }
+            let pref = if id.is_empty() {
+                if w.get_dark_mode() { "dark" } else { "light" }.to_string()
+            } else {
+                format!("ref:{id}")
+            };
+            {
+                let mut settings = store.borrow_mut();
+                settings.set_theme_pref(pref);
+                let _ = settings.save();
             }
             registry.broadcast_config_changed();
         });

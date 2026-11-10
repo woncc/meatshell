@@ -619,7 +619,7 @@ impl TermBuffer {
             }
         }
         self.cap_raw();
-        self.feed_batched(bytes);
+        self.feed_with_primary_snapshot(bytes);
         if !self.parser.screen().alternate_screen() && !touches_alt && erase_saved_through.is_none()
         {
             self.suppress_alt_erase_saved = false;
@@ -696,7 +696,85 @@ impl TermBuffer {
         self.sel_anchor = None;
         self.sel_focus = None;
         self.sel_ranges.clear();
-        self.feed_batched(&stream);
+        self.primary_fullscreen = false;
+        self.cursor_hidden = false;
+        self.feed_with_primary_snapshot(&stream);
+    }
+
+    /// Index of a primary-screen erase-display (`CSI 2 J`). `None` when an
+    /// alternate-screen enter comes first: that clear belongs to the alt
+    /// screen and the primary grid is saved by the parser instead.
+    fn primary_erase_index(bytes: &[u8]) -> Option<usize> {
+        let erase = bytes.windows(4).position(|window| window == b"\x1b[2J")?;
+        let alt_enter_first = [b"\x1b[?1049h".as_slice(), b"\x1b[?1047h", b"\x1b[?47h"]
+            .iter()
+            .filter_map(|sequence| {
+                bytes
+                    .windows(sequence.len())
+                    .position(|window| window == *sequence)
+            })
+            .any(|position| position < erase);
+        if alt_enter_first {
+            None
+        } else {
+            Some(erase)
+        }
+    }
+
+    /// Copy the visible primary grid into scrollback once, before a
+    /// full-screen program erases it. Trailing blank rows are padding, not
+    /// output. The history cap still drops the oldest lines.
+    fn snapshot_visible_into_history(&mut self) {
+        let (rows, cols) = {
+            let screen = self.parser.screen();
+            screen.size()
+        };
+        let lines: Vec<Line> = {
+            let screen = self.parser.screen();
+            (0..rows).map(|row| build_row(screen, row, cols)).collect()
+        };
+        let mut end = lines.len();
+        while end > 0 && lines[end - 1].0.trim().is_empty() {
+            end -= 1;
+        }
+        for line in lines.into_iter().take(end) {
+            self.history.push_back(line);
+        }
+        while self.history.len() > MAX_HISTORY {
+            self.history.pop_front();
+        }
+        self.prev.clear();
+        self.view_offset = 0;
+    }
+
+    /// Feed bytes, but a primary `CSI 2 J` first commits the visible grid to
+    /// history. Later redraws of that full-screen program are not recorded.
+    fn feed_with_primary_snapshot(&mut self, bytes: &[u8]) {
+        let mut rest = bytes;
+        while !rest.is_empty() {
+            if self.parser.screen().alternate_screen() {
+                self.feed_batched(rest);
+                return;
+            }
+            if let Some(position) = Self::primary_erase_index(rest) {
+                if position > 0 {
+                    self.feed_batched(&rest[..position]);
+                }
+                if !self.primary_fullscreen {
+                    self.snapshot_visible_into_history();
+                    // Only a hidden cursor means the program will keep erasing
+                    // this screen. A visible-cursor erase (`clear`) commits the
+                    // grid once and the next prompt scrolls normally.
+                    self.primary_fullscreen = self.cursor_hidden;
+                }
+                let sequence_end = (position + 4).min(rest.len());
+                self.feed_batched(&rest[position..sequence_end]);
+                rest = &rest[sequence_end..];
+                continue;
+            }
+            self.feed_batched(rest);
+            return;
+        }
     }
 
     /// Refresh the cached `mouse_tracked` flag from the parser's current mouse
@@ -732,13 +810,34 @@ impl TermBuffer {
             // Snap to live view whenever we're on the alt screen — this
             // prevents old history (accumulated before alt-screen was entered)
             // from mixing with the full-screen program's output after a scroll.
+            // The primary grid was saved by the parser; do not treat this as
+            // the primary-screen redraw mode.
+            self.primary_fullscreen = false;
+            self.cursor_hidden = false;
             self.view_offset = 0;
             self.prev.clear();
             return;
         }
-        if is_fullscreen_refresh {
-            // Non-alt-screen full-screen refresh (btop, htop with alt disabled…).
-            // Don't capture lines into history; they'd mix with the next frame.
+        let hide_at = bytes.windows(6).rposition(|window| window == b"\x1b[?25l");
+        let show_at = bytes.windows(6).rposition(|window| window == b"\x1b[?25h");
+        match (hide_at, show_at) {
+            (Some(hide), Some(show)) => self.cursor_hidden = hide > show,
+            (Some(_), None) => self.cursor_hidden = true,
+            (None, Some(_)) => self.cursor_hidden = false,
+            (None, None) => {}
+        }
+        if show_at.is_some() && !self.cursor_hidden && self.primary_fullscreen {
+            // Leaving the full-screen program (top's Ctrl+C path). Drop this
+            // chunk instead of scrolling its last frame into history.
+            self.primary_fullscreen = false;
+            self.view_offset = 0;
+            self.prev.clear();
+            return;
+        }
+        if self.primary_fullscreen || is_fullscreen_refresh {
+            // Non-alt-screen full-screen refresh (procps top, btop with
+            // alt-screen off). The visible grid was snapshotted once before
+            // the first erase. Do not append this frame or the next redraw.
             self.view_offset = 0;
             self.prev.clear();
             return;
