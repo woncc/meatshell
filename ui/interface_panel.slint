@@ -411,6 +411,10 @@ export component InterfacePanel inherits Rectangle {
     in-out property <bool> paste-confirm-enabled: true;
     in-out property <bool> extra-paste-shortcuts-enabled: true;
     in-out property <bool> zen-mode: false;
+    in-out property <bool> prefer-existing-connection: false;
+    in-out property <bool> allow-double-open-connection: true;
+    in-out property <bool> confirm-extra-connection: true;
+    in-out property <bool> confirm-tab-close: false;
     in-out property <bool> hide-ssh-identity: false;
     in-out property <bool> welcome-as-sidebar;
     in-out property <bool> quick-commands-as-sidebar;
@@ -437,8 +441,7 @@ export component InterfacePanel inherits Rectangle {
     property <bool> renderer-restart-required;
     property <bool> wp-is-custom:
         root.current-wallpaper != "" && root.current-wallpaper != "builtin:light"
-        && root.current-wallpaper != "builtin:dark" && root.current-wallpaper != "builtin:tech"
-        && root.current-wallpaper != "builtin:miku" && root.current-wallpaper != "builtin:ms";
+        && root.current-wallpaper != "builtin:dark";
 
     callback set-term-font(string);
     callback set-term-font-size(int);
@@ -474,6 +477,10 @@ export component InterfacePanel inherits Rectangle {
     callback set-paste-confirm-enabled(bool);
     callback set-extra-paste-shortcuts-enabled(bool);
     callback set-zen-mode(bool);
+    callback set-prefer-existing-connection(bool);
+    callback set-allow-double-open-connection(bool);
+    callback set-confirm-extra-connection(bool);
+    callback set-confirm-tab-close(bool);
     callback set-hide-ssh-identity(bool);
     callback set-welcome-as-sidebar(bool);
     callback set-quick-commands-as-sidebar(bool);
@@ -1083,62 +1090,6 @@ export component InterfacePanel inherits Rectangle {
                         Text { text: root.lang-en ? "Meat Dark" : "简约·暗"; font-size: 11px * Theme.panel-font;
                                color: Theme.text-secondary; horizontal-alignment: center; }
                     }
-                    VerticalLayout {
-                        spacing: 5px;
-                        WallpaperSwatch {
-                            width: 100px;
-                            selected: root.current-wallpaper == "builtin:tech";
-                            clicked => { root.set-wallpaper("builtin:tech"); }
-                            Rectangle {
-                                width: 100%; height: 100%;
-                                background: @linear-gradient(180deg, #05060f 0%, #0b1430 55%, #1a0a2e 100%);
-                                clip: true;
-                                // glowing planet
-                                Rectangle {
-                                    x: parent.width * 0.5 - 16px; y: parent.height * 0.22;
-                                    width: 32px; height: 32px; border-radius: 16px;
-                                    background: @radial-gradient(circle, #ff5ea8 0%, #ff5ea800 70%);
-                                }
-                                // neon horizon line
-                                Rectangle {
-                                    y: parent.height * 0.58; width: parent.width; height: 2px;
-                                    background: #19e6ff; opacity: 0.85;
-                                }
-                            }
-                        }
-                        Text { text: root.lang-en ? "Fantasy 3048" : "幻想3048"; font-size: 11px * Theme.panel-font;
-                               color: Theme.text-secondary; horizontal-alignment: center; }
-                    }
-                    VerticalLayout {
-                        spacing: 5px;
-                        WallpaperSwatch {
-                            width: 100px;
-                            selected: root.current-wallpaper == "builtin:ms";
-                            clicked => { root.set-wallpaper("builtin:ms"); }
-                            Image {
-                                width: 100%; height: 100%;
-                                source: @image-url("../assets/ms.jpg");
-                                image-fit: cover;
-                            }
-                        }
-                        Text { text: "MS"; font-size: 11px * Theme.panel-font;
-                               color: Theme.text-secondary; horizontal-alignment: center; }
-                    }
-                    VerticalLayout {
-                        spacing: 5px;
-                        WallpaperSwatch {
-                            width: 100px;
-                            selected: root.current-wallpaper == "builtin:miku";
-                            clicked => { root.set-wallpaper("builtin:miku"); }
-                            Image {
-                                width: 100%; height: 100%;
-                                source: @image-url("../assets/miku.jpg");
-                                image-fit: cover;
-                            }
-                        }
-                        Text { text: "Miku"; font-size: 11px * Theme.panel-font;
-                               color: Theme.text-secondary; horizontal-alignment: center; }
-                    }
                     }
                 }
 
@@ -1511,6 +1462,62 @@ export component InterfacePanel inherits Rectangle {
                 }
                 // Welcome page as a sidebar — lived on its own "Welcome page"
                 // settings page before; it is a sidebar option like the rest.
+                SettingRow {
+                    label: root.lang-en ? "Prefer an existing connection" : "优先切换已有连接";
+                    desc: root.lang-en
+                        ? "Off: a click always opens a new connection. On: a click focuses this window's tab for the same saved session and protocol. A different name is not reused."
+                        : "关闭时单击仍直接新建连接。打开后，单击聚焦本窗口里同一会话、同一协议的已有标签；没有才新建。不按显示名称复用。";
+                    Switch {
+                        on: root.prefer-existing-connection;
+                        toggled(v) => {
+                            root.prefer-existing-connection = v;
+                            root.set-prefer-existing-connection(v);
+                        }
+                    }
+                }
+                SettingRow {
+                    enabled: root.prefer-existing-connection;
+                    label: root.lang-en ? "Double-click opens another connection" : "允许双击另开连接";
+                    desc: root.lang-en
+                        ? "Only applies while the switch above is on. A double-click is one gesture, not two clicks."
+                        : "只在上面的开关打开时生效。一次双击只算一个动作，不会连开两个连接。";
+                    Switch {
+                        enabled: root.prefer-existing-connection;
+                        on: root.allow-double-open-connection;
+                        toggled(v) => {
+                            root.allow-double-open-connection = v;
+                            root.set-allow-double-open-connection(v);
+                        }
+                    }
+                }
+                SettingRow {
+                    enabled: root.prefer-existing-connection && root.allow-double-open-connection;
+                    label: root.lang-en ? "Confirm before opening another" : "另开前确认";
+                    desc: root.lang-en
+                        ? "Only when double-click is allowed. Off opens the extra connection immediately. On asks first; Cancel does nothing."
+                        : "只在允许双击时生效。关闭则双击直接新建。打开后才询问；取消不新建。";
+                    Switch {
+                        enabled: root.prefer-existing-connection && root.allow-double-open-connection;
+                        on: root.confirm-extra-connection;
+                        toggled(v) => {
+                            root.confirm-extra-connection = v;
+                            root.set-confirm-extra-connection(v);
+                        }
+                    }
+                }
+                SettingRow {
+                    label: root.lang-en ? "Ask before closing a tab" : "关闭前询问";
+                    desc: root.lang-en
+                        ? "Off: the tab ×, the tab menu, and middle-click close immediately. On: those three ask first. Cancel leaves the connection and the tab alone. Quitting the app is unchanged."
+                        : "默认直接关闭。打开后，标签上的 ×、右键菜单的关闭、以及鼠标中键，都会先询问。取消不会断开连接，也不会删掉标签。退出整个程序不受影响。";
+                    Switch {
+                        on: root.confirm-tab-close;
+                        toggled(v) => {
+                            root.confirm-tab-close = v;
+                            root.set-confirm-tab-close(v);
+                        }
+                    }
+                }
                 SettingRow {
                     label: root.lang-en ? "Show the welcome page as a sidebar" : "欢迎页设为侧栏";
                     desc: root.lang-en

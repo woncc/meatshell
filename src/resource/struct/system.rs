@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use crate::config::SessionKind;
 use crate::ssh::{ProcInfo, SystemDetails};
 
 use sysinfo::{Disks, Networks, System};
@@ -37,6 +38,8 @@ pub(crate) struct TabStatus {
     pub(crate) host: String,
     pub(crate) user: String,
     pub(crate) session_id: String,
+    /// Protocol this tab was opened with. Reuse matches this, not the label.
+    pub(crate) kind: SessionKind,
     pub(crate) state: u8,
     /// True for built-in local shell tabs (system:*). Those should show the
     /// local machine's resource panel, not the (empty) remote stats fields.
