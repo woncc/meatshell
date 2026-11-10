@@ -401,6 +401,10 @@ export component AppWindow inherits Window {
     callback set-net-up-color(string) -> bool;
     callback set-net-down-color(string) -> bool;
     in-out property <bool> local-latency-mode: false;
+    // “后台持续监控”. Default off. The sidebar settings page owns the switch;
+    // a future 通用 category can move that row without changing this property.
+    in-out property <bool> background-monitor: false;
+    callback set-background-monitor(bool);
     // Local speed/latency block under the remote graph. Default on.
     in-out property <bool> show-local-metric: true;
     callback set-show-local-metric(bool);
@@ -5537,6 +5541,7 @@ export component AppWindow inherits Window {
                     sftp-enabled <=> root.sftp-enabled;
                     collapse-sidebar-default <=> root.collapse-sidebar-default;
                     local-latency-mode <=> root.local-latency-mode;
+                    background-monitor <=> root.background-monitor;
                     show-local-metric <=> root.show-local-metric;
                     net-up-color-hex <=> root.net-up-color-hex;
                     net-down-color-hex <=> root.net-down-color-hex;
@@ -5602,6 +5607,7 @@ export component AppWindow inherits Window {
                     set-sftp-enabled(v) => { root.set-sftp-enabled(v); }
                     set-collapse-sidebar-default(v) => { root.set-collapse-sidebar-default(v); }
                     set-local-latency-mode(v) => { root.set-local-latency-mode(v); }
+                    set-background-monitor(v) => { root.set-background-monitor(v); }
                     set-show-local-metric(v) => { root.set-show-local-metric(v); }
                     set-net-up-color(v) => { root.set-net-up-color(v) }
                     set-net-down-color(v) => { root.set-net-down-color(v) }
