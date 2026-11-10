@@ -84,6 +84,22 @@ fn present_connection(win: &AppWindow, st: &TabStatus, label: String) {
     });
 }
 
+/// ICMP target for the active tab. Empty unless that tab is a connected
+/// SSH or Telnet session. Disconnect (`state == 2`) is not "still that host".
+pub(super) fn active_probe_host(win: &AppWindow, statuses: &TabStatuses) -> String {
+    let active = win.get_active_tab_id().to_string();
+    if active == "welcome" {
+        return String::new();
+    }
+    statuses
+        .lock()
+        .unwrap()
+        .get(&active)
+        .filter(|st| !st.is_local && st.state != 2)
+        .map(|st| st.probe_host.clone())
+        .unwrap_or_default()
+}
+
 pub(super) fn refresh_sidebar(
     win: &AppWindow,
     statuses: &TabStatuses,
@@ -268,10 +284,9 @@ pub(super) fn refresh_sidebar(
     } else {
         statuses.lock().unwrap().get(&active).cloned()
     };
-    let probe_host = status
-        .as_ref()
-        .map(|st| st.probe_host.clone())
-        .unwrap_or_default();
+    // Connected SSH/Telnet only. Disconnect, local shells, and the welcome
+    // tab clear the ICMP target instead of leaving the previous host in place.
+    let probe_host = active_probe_host(win, statuses);
 
     match status {
         // Local shell tabs: keep the connection status line, but show the local
@@ -402,11 +417,10 @@ fn apply_local_panel(
     probe_host: &str,
 ) {
     let latency_mode = win.get_local_latency_mode();
-    if latency_mode {
-        local.latency.set_target(probe_host);
-    } else {
-        local.latency.set_target("");
-    }
+    // Keep this host's samples when only the view changes. A different host,
+    // or no host, replaces them inside the probe. The 1s timer owns ICMP mode
+    // so a redraw cannot force probes while hidden.
+    local.latency.set_target(probe_host);
     let rtt = if latency_mode {
         local.latency.latest()
     } else {
@@ -415,7 +429,7 @@ fn apply_local_panel(
     let view = local_metric_view(latency_mode, snap.net_tx_per_sec, snap.net_rx_per_sec, rtt);
     win.set_local_metric_label(
         (if latency_mode {
-            t("延迟", "Latency")
+            t("ICMP 延迟", "ICMP latency")
         } else {
             t("本机速度", "Local speed")
         })
