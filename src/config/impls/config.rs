@@ -317,10 +317,20 @@ fn migrate_defaults(cfg: &mut ConfigFile) -> bool {
     true
 }
 
+/// Built-in ids other than 简约·浅 / 简约·暗 become 简约·浅. Empty and custom
+/// filesystem paths stay. No GUI types, so headless builds can normalize too.
+pub(crate) fn canonical_wallpaper_id(id: &str) -> &str {
+    match id {
+        "" | "builtin:light" | "builtin:dark" => id,
+        other if other.starts_with("builtin:") => "builtin:light",
+        other => other,
+    }
+}
+
 /// Built-in wallpapers other than 简约·浅 / 简约·暗 are gone. Map those ids to
 /// 简约·浅. Custom file paths and "无" stay. Does not delete any file.
 fn retire_removed_wallpapers(cfg: &mut ConfigFile) -> bool {
-    let next = crate::wallpaper::canonical_wallpaper_id(&cfg.wallpaper);
+    let next = canonical_wallpaper_id(&cfg.wallpaper);
     if next == cfg.wallpaper {
         return false;
     }
@@ -1056,7 +1066,7 @@ impl ConfigStore {
     }
 
     pub fn set_wallpaper(&mut self, id: impl Into<String>) {
-        self.cache.wallpaper = crate::wallpaper::canonical_wallpaper_id(&id.into()).to_string();
+        self.cache.wallpaper = canonical_wallpaper_id(&id.into()).to_string();
     }
 
     pub fn prefer_existing_connection(&self) -> bool {
@@ -2490,6 +2500,16 @@ mod tests {
             ..ConfigFile::default()
         };
         assert!(!retire_removed_wallpapers(&mut none));
+        for removed in ["builtin:tech", "builtin:ms", "builtin:miku"] {
+            assert_eq!(canonical_wallpaper_id(removed), "builtin:light");
+        }
+        assert_eq!(canonical_wallpaper_id("builtin:dark"), "builtin:dark");
+        assert_eq!(canonical_wallpaper_id("builtin:light"), "builtin:light");
+        assert_eq!(canonical_wallpaper_id(""), "");
+        assert_eq!(
+            canonical_wallpaper_id("/tmp/my-wallpaper.png"),
+            "/tmp/my-wallpaper.png"
+        );
     }
 
     #[test]
