@@ -5,7 +5,7 @@ use crate::config::PortForward;
 
 use super::{
     CredentialResponder, HostKeyResponder, MfaResponder, ProcInfo, ProcessKillResult, RemoteEntry,
-    RemoteTreeNode, RuntimeTunnelInfo, SessionCommand, SystemDetails,
+    RemoteTreeNode, RuntimeTunnelInfo, RzFileResponder, SessionCommand, SystemDetails,
 };
 
 /// Events emitted back to the UI thread.
@@ -121,6 +121,10 @@ pub enum SessionEvent {
         state: u8, // 0 = active, 1 = done, 2 = error
         msg: String,
     },
+    /// Remote `rz` needs a local file list. The SSH task is blocked on
+    /// `responder` until the UI opens the picker against the window that
+    /// currently holds this tab (#28). An empty reply cancels the upload.
+    RzUploadPrompt { responder: RzFileResponder },
     /// A remote text file loaded for the built-in viewer/editor (#70). On
     /// failure (too large, binary, non-UTF-8, I/O error) `error` is non-empty
     /// and `content` is empty.
