@@ -6,6 +6,7 @@
 //! not an SSH protocol RTT. `--` means there is no remote host or ping did not
 //! answer. Speed text is never reused for that reading.
 
+use std::collections::HashMap;
 use std::io::Read;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -207,35 +208,90 @@ pub(crate) fn parse_ping_rtt_ms(output: &str) -> Option<f32> {
 }
 
 struct ProbeState {
+    tab_id: String,
     target: String,
     mode: IcmpMode,
-    generation: u64,
+    /// Bumped when the ping target changes. An in-flight ping from the previous
+    /// target carries the old value and is dropped.
+    probe_generation: u64,
     latest: Option<f32>,
-    history: Vec<f32>,
+    /// Bounded ICMP series per tab. A second connection to the same host does
+    /// not share this map entry.
+    series: HashMap<String, Vec<f32>>,
+    /// Connection generation that owns `series[tab]`. A reconnect replaces it.
+    generations: HashMap<String, u64>,
+    /// Last non-empty host bound for that tab. An empty bind is a pause, not a
+    /// new host, so the kept series is not wiped.
+    hosts: HashMap<String, String>,
 }
 
 impl ProbeState {
     fn new() -> Self {
         Self {
+            tab_id: String::new(),
             target: String::new(),
             mode: IcmpMode::Frozen,
-            generation: 0,
+            probe_generation: 0,
             latest: None,
-            history: Vec::new(),
+            series: HashMap::new(),
+            generations: HashMap::new(),
+            hosts: HashMap::new(),
         }
     }
 
-    /// Changing host drops that host's samples. The same host keeps them, so a
-    /// speed/latency toggle is not treated as a new target.
-    fn set_target(&mut self, host: &str) {
+    /// Point the single probe at one connection.
+    ///
+    /// Switching tabs keeps every series. The same tab and generation keep
+    /// their samples. A new generation, or a different non-empty host on that
+    /// tab, starts an empty series so a reconnect cannot show the previous
+    /// connection. An empty host stops pinging and leaves the series in place.
+    fn bind(&mut self, tab_id: &str, host: &str, generation: u64) {
         let host = ping_host(host).unwrap_or("");
-        if self.target == host {
-            return;
+        let generation_changed = self.generations.get(tab_id).copied() != Some(generation);
+        let host_changed = !host.is_empty()
+            && self.hosts.get(tab_id).map(String::as_str) != Some(host.as_ref());
+        if generation_changed || host_changed {
+            self.series.insert(tab_id.to_string(), Vec::new());
         }
-        self.target = host.to_string();
-        self.generation = self.generation.wrapping_add(1);
-        self.latest = None;
-        self.history.clear();
+        self.generations.insert(tab_id.to_string(), generation);
+        if !host.is_empty() {
+            self.hosts.insert(tab_id.to_string(), host.to_string());
+        }
+        let target_changed = self.target != host;
+        self.tab_id = tab_id.to_string();
+        if target_changed {
+            self.target = host.to_string();
+            self.probe_generation = self.probe_generation.wrapping_add(1);
+        }
+        self.latest = if host.is_empty() {
+            None
+        } else {
+            self.series.get(tab_id).and_then(|hist| {
+                hist.iter().rev().copied().find(|value| *value >= 0.0)
+            })
+        };
+    }
+
+    fn forget(&mut self, tab_id: &str) {
+        self.series.remove(tab_id);
+        self.generations.remove(tab_id);
+        self.hosts.remove(tab_id);
+        if self.tab_id == tab_id {
+            self.tab_id.clear();
+            if !self.target.is_empty() {
+                self.target.clear();
+                self.probe_generation = self.probe_generation.wrapping_add(1);
+            }
+            self.latest = None;
+        }
+    }
+
+    fn history_of(&self, tab_id: &str) -> Vec<f32> {
+        self.series.get(tab_id).cloned().unwrap_or_default()
+    }
+
+    fn history(&self) -> Vec<f32> {
+        self.history_of(&self.tab_id)
     }
 
     fn set_mode(&mut self, mode: IcmpMode) {
@@ -243,16 +299,36 @@ impl ProbeState {
     }
 
     /// One timeline slot. `None` is an empty second, not a measured 0 ms.
-    fn record(&mut self, generation: u64, host: &str, rtt: Option<f32>) {
-        self.record_span(generation, host, 1, rtt);
+    fn record(
+        &mut self,
+        probe_generation: u64,
+        tab_id: &str,
+        conn_generation: u64,
+        host: &str,
+        rtt: Option<f32>,
+    ) {
+        self.record_span(probe_generation, tab_id, conn_generation, host, 1, rtt);
     }
 
-    /// Append `elapsed_secs` slots ending in `sample`. Earlier slots in the
-    /// span are empty. Nothing is copied forward or interpolated.
-    fn record_span(&mut self, generation: u64, host: &str, elapsed_secs: u64, sample: Option<f32>) {
-        if self.generation != generation || self.target != host || elapsed_secs == 0 {
+    /// Append `elapsed_secs` slots ending in `sample` on that tab's series.
+    /// Earlier slots in the span are empty. Nothing is copied forward or
+    /// interpolated. A ping started for another generation or tab is ignored.
+    fn record_span(
+        &mut self,
+        probe_generation: u64,
+        tab_id: &str,
+        conn_generation: u64,
+        host: &str,
+        elapsed_secs: u64,
+        sample: Option<f32>,
+    ) {
+        if self.probe_generation != probe_generation || self.target != host || elapsed_secs == 0 {
             return;
         }
+        if self.generations.get(tab_id).copied() != Some(conn_generation) {
+            return;
+        }
+        let hist = self.series.entry(tab_id.to_string()).or_default();
         let slots = (elapsed_secs as usize).min(HISTORY_LEN);
         let value = sample.filter(|ms| ms.is_finite() && *ms >= 0.0);
         for index in 0..slots {
@@ -261,12 +337,14 @@ impl ProbeState {
             } else {
                 SAMPLE_GAP
             };
-            if self.history.len() >= HISTORY_LEN {
-                self.history.remove(0);
+            if hist.len() >= HISTORY_LEN {
+                hist.remove(0);
             }
-            self.history.push(point);
+            hist.push(point);
         }
-        self.latest = value;
+        if self.tab_id == tab_id {
+            self.latest = value;
+        }
     }
 }
 
@@ -287,9 +365,17 @@ impl LatencyProbe {
         Self { stop, data }
     }
 
-    pub(crate) fn set_target(&self, host: &str) {
+    /// Follow one connection. See [`ProbeState::bind`].
+    pub(crate) fn bind_connection(&self, tab_id: &str, host: &str, generation: u64) {
         if let Ok(mut data) = self.data.lock() {
-            data.set_target(host);
+            data.bind(tab_id, host, generation);
+        }
+    }
+
+    /// Drop the series for a closed tab so a reused id cannot inherit it.
+    pub(crate) fn forget_connection(&self, tab_id: &str) {
+        if let Ok(mut data) = self.data.lock() {
+            data.forget(tab_id);
         }
     }
 
@@ -308,7 +394,7 @@ impl LatencyProbe {
     pub(crate) fn history(&self) -> Vec<f32> {
         self.data
             .lock()
-            .map(|data| data.history.clone())
+            .map(|data| data.history())
             .unwrap_or_default()
     }
 }
@@ -365,8 +451,10 @@ pub(crate) struct MonitorTick {
 /// One 1s tick for local sampling and ICMP.
 ///
 /// Collapse and focus mode do not sample, even with the switch on. Disconnect
-/// is not a presence value: the caller passes `host_set = false` and clears
-/// the target. The speed view freezes ICMP history instead of deleting it.
+/// is not a presence value: the caller passes `host_set = false` and binds an
+/// empty host, which stops pings without deleting that connection's series.
+/// The speed view freezes the active series instead of deleting it. Hidden and
+/// unfocused sampling still follow `continuous`.
 pub(crate) fn monitor_tick(
     presence: PanelPresence,
     continuous: bool,
@@ -443,8 +531,14 @@ fn probe_loop(stop: Arc<AtomicBool>, data: Arc<Mutex<ProbeState>>) {
     let mut last = Instant::now();
     let mut prev = IcmpMode::Frozen;
     while !stop.load(Ordering::Relaxed) {
-        let (host, generation, mode) = match data.lock() {
-            Ok(state) => (state.target.clone(), state.generation, state.mode),
+        let (tab_id, host, probe_generation, conn_generation, mode) = match data.lock() {
+            Ok(state) => (
+                state.tab_id.clone(),
+                state.target.clone(),
+                state.probe_generation,
+                state.generations.get(&state.tab_id).copied().unwrap_or(0),
+                state.mode,
+            ),
             Err(_) => return,
         };
         if mode != prev {
@@ -470,7 +564,14 @@ fn probe_loop(stop: Arc<AtomicBool>, data: Arc<Mutex<ProbeState>>) {
             }
             let elapsed = last.elapsed().as_secs().max(1);
             if let Ok(mut state) = data.lock() {
-                state.record_span(generation, &host, elapsed, rtt);
+                state.record_span(
+                    probe_generation,
+                    &tab_id,
+                    conn_generation,
+                    &host,
+                    elapsed,
+                    rtt,
+                );
             }
             last = Instant::now();
             sleep_flag(
@@ -480,7 +581,14 @@ fn probe_loop(stop: Arc<AtomicBool>, data: Arc<Mutex<ProbeState>>) {
         } else {
             let elapsed = last.elapsed().as_secs().max(1);
             if let Ok(mut state) = data.lock() {
-                state.record_span(generation, &host, elapsed, None);
+                state.record_span(
+                    probe_generation,
+                    &tab_id,
+                    conn_generation,
+                    &host,
+                    elapsed,
+                    None,
+                );
             }
             last = Instant::now();
             sleep_flag(PROBE_IDLE, &stop);
@@ -621,85 +729,108 @@ mod tests {
     #[test]
     fn stale_probe_does_not_overwrite_a_new_target() {
         let mut state = ProbeState::new();
-        state.set_target("one.example");
-        let first = state.generation;
-        state.record(first, "one.example", Some(8.0));
+        state.bind("tab-a", "one.example", 1);
+        let first = state.probe_generation;
+        state.record(first, "tab-a", 1, "one.example", Some(8.0));
         assert_eq!(state.latest, Some(8.0));
-        assert_eq!(state.history, vec![8.0]);
+        assert_eq!(state.history(), vec![8.0]);
 
-        state.set_target("two.example");
+        state.bind("tab-b", "two.example", 1);
+        assert_eq!(state.history_of("tab-a"), vec![8.0]);
+        assert!(state.history().is_empty());
         assert_eq!(state.latest, None);
-        assert!(state.history.is_empty());
-        state.record(first, "one.example", Some(99.0));
+        state.record(first, "tab-a", 1, "one.example", Some(99.0));
+        assert_eq!(state.history_of("tab-a"), vec![8.0]);
+        state.record(state.probe_generation, "tab-b", 1, "two.example", None);
         assert_eq!(state.latest, None);
-        state.record(state.generation, "two.example", None);
-        assert_eq!(state.latest, None);
-        assert_eq!(state.history, vec![SAMPLE_GAP]);
-        state.record(state.generation, "two.example", Some(21.0));
+        assert_eq!(state.history(), vec![SAMPLE_GAP]);
+        state.record(state.probe_generation, "tab-b", 1, "two.example", Some(21.0));
         assert_eq!(state.latest, Some(21.0));
-        assert_eq!(state.history, vec![SAMPLE_GAP, 21.0]);
+        assert_eq!(state.history(), vec![SAMPLE_GAP, 21.0]);
+        assert_eq!(state.history_of("tab-a"), vec![8.0]);
 
-        state.set_target("not a host");
+        state.bind("tab-b", "not a host", 1);
         assert!(state.target.is_empty());
         assert_eq!(state.latest, None);
+        assert_eq!(state.history_of("tab-b"), vec![SAMPLE_GAP, 21.0]);
     }
 
     #[test]
-    fn same_host_view_switch_keeps_limited_history() {
+    fn tab_switch_keeps_each_connection_and_reconnect_starts_empty() {
         let mut state = ProbeState::new();
-        state.set_target("one.example");
+        state.bind("tab-a", "one.example", 1);
         state.set_mode(IcmpMode::Continuous);
-        let generation = state.generation;
-        state.record(generation, "one.example", Some(4.0));
-        state.record(generation, "one.example", None);
+        let probe = state.probe_generation;
+        state.record(probe, "tab-a", 1, "one.example", Some(4.0));
+        state.record(probe, "tab-a", 1, "one.example", None);
         state.set_mode(IcmpMode::Frozen);
-        state.set_target("one.example");
+        state.bind("tab-a", "one.example", 1);
         assert_eq!(state.mode, IcmpMode::Frozen);
-        assert_eq!(state.history, vec![4.0, SAMPLE_GAP]);
-        assert_eq!(state.latest, None);
-        state.set_mode(IcmpMode::Continuous);
-        assert_eq!(state.history, vec![4.0, SAMPLE_GAP]);
-        state.set_target("other.example");
-        assert!(state.history.is_empty());
-        assert!(state.latest.is_none());
+        assert_eq!(state.history(), vec![4.0, SAMPLE_GAP]);
+        assert_eq!(state.latest, Some(4.0));
+
+        state.bind("tab-b", "one.example", 1);
+        state.record(state.probe_generation, "tab-b", 1, "one.example", Some(9.0));
+        assert_eq!(state.history_of("tab-a"), vec![4.0, SAMPLE_GAP]);
+        assert_eq!(state.history_of("tab-b"), vec![9.0]);
+
+        state.bind("tab-a", "one.example", 1);
+        assert_eq!(state.history(), vec![4.0, SAMPLE_GAP]);
+
+        state.bind("tab-a", "", 1);
+        assert!(state.target.is_empty());
+        assert_eq!(state.history_of("tab-a"), vec![4.0, SAMPLE_GAP]);
+        state.record(state.probe_generation, "tab-a", 1, "one.example", Some(99.0));
+        assert_eq!(state.history_of("tab-a"), vec![4.0, SAMPLE_GAP]);
+
+        state.bind("tab-a", "one.example", 2);
+        assert!(state.history().is_empty());
+        state.forget("tab-b");
+        assert!(state.history_of("tab-b").is_empty());
     }
 
     #[test]
     fn paused_seconds_are_empty_slots_not_copied_or_interpolated() {
         let mut state = ProbeState::new();
-        state.set_target("one.example");
-        let generation = state.generation;
-        state.record_span(generation, "one.example", 1, Some(10.0));
-        state.record_span(generation, "one.example", 1, None);
-        state.record_span(generation, "one.example", 4, None);
-        state.record_span(generation, "one.example", 1, Some(30.0));
+        state.bind("tab-a", "one.example", 1);
+        let probe = state.probe_generation;
+        state.record_span(probe, "tab-a", 1, "one.example", 1, Some(10.0));
+        state.record_span(probe, "tab-a", 1, "one.example", 1, None);
+        state.record_span(probe, "tab-a", 1, "one.example", 4, None);
+        state.record_span(probe, "tab-a", 1, "one.example", 1, Some(30.0));
         assert_eq!(
-            state.history,
+            state.history(),
             vec![10.0, SAMPLE_GAP, SAMPLE_GAP, SAMPLE_GAP, SAMPLE_GAP, SAMPLE_GAP, 30.0]
         );
-        assert!(state.history[1..6].iter().all(|slot| *slot < 0.0));
+        assert!(state.history()[1..6].iter().all(|slot| *slot < 0.0));
         assert_eq!(state.latest, Some(30.0));
-        let plot = latency_plot(&state.history);
+        let plot = latency_plot(&state.history());
         assert!((plot[0] - (10.0 / 30.0)).abs() < 0.001);
         assert_eq!(&plot[1..6], &[0.0, 0.0, 0.0, 0.0, 0.0]);
         assert!((plot[6] - 1.0).abs() < 0.001);
-        let forged: Vec<f32> = state
-            .history
+        let shown = state.history();
+        let forged: Vec<f32> = shown
             .iter()
             .map(|slot| if *slot < 0.0 { 20.0 } else { *slot })
             .collect();
-        assert_ne!(state.history, forged);
+        assert_ne!(shown, forged);
     }
 
     #[test]
     fn history_stays_inside_the_cap() {
         let mut state = ProbeState::new();
-        state.set_target("one.example");
+        state.bind("tab-a", "one.example", 1);
         for i in 0..(HISTORY_LEN + 3) {
-            state.record(state.generation, "one.example", Some(i as f32));
+            state.record(
+                state.probe_generation,
+                "tab-a",
+                1,
+                "one.example",
+                Some(i as f32),
+            );
         }
-        assert_eq!(state.history.len(), HISTORY_LEN);
-        assert_eq!(state.history[0], 3.0);
+        assert_eq!(state.history().len(), HISTORY_LEN);
+        assert_eq!(state.history()[0], 3.0);
     }
 
     #[test]

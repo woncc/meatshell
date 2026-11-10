@@ -150,6 +150,8 @@ pub(super) fn wire_tab_callbacks(
         });
         let store = store_close;
         let close_gate = close_gate.clone();
+        let core_close = core.clone();
+        let window_id_close = window_id;
         window.on_pane_tab_closed(move |_pane_id: i32, id: SharedString| {
             let id = id.to_string();
             let confirm = store.borrow().confirm_tab_close();
@@ -174,6 +176,10 @@ pub(super) fn wire_tab_callbacks(
             tab_titles.borrow_mut().remove(&id);
             if let Some(handle) = handles.borrow_mut().remove(&id) {
                 handle.close();
+            }
+            if let Some(st) = core_close.window_states.borrow().get(&window_id_close) {
+                st.statuses.lock().unwrap().remove(&id);
+                st.local_snap.latency.forget_connection(&id);
             }
             if let Some(sftp) = sftp_handles.lock().unwrap().remove(&id) {
                 sftp.close();

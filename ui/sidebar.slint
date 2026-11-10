@@ -617,6 +617,9 @@ export component Sidebar inherits Rectangle {
     in property <string> local-metric-label: "Local speed";
     in property <string> local-latency-text: "--";
     in property <[float]> local-latency-history;
+    // False while a remote tab is connecting or disconnected. Hides the
+    // resource bars and both charts so local speed cannot sit in the server slot.
+    in property <bool> session-metrics-visible: true;
     in property <[string]> net-ifaces;
     in property <string> net-selected;
     in property <bool> net-show-selector;
@@ -698,7 +701,7 @@ export component Sidebar inherits Rectangle {
                 copy-host(h) => { root.copy-host(h); }
             }
             Rectangle { height: 1px; background: Theme.border-subtle; }
-            StatsBlock {
+            if root.session-metrics-visible : StatsBlock {
                 resource-title: root.resource-title;
                 system-info-available: root.system-info-available;
                 proc-available: root.proc-available;
@@ -708,8 +711,8 @@ export component Sidebar inherits Rectangle {
                 show-system-info() => { root.show-system-info(); }
                 show-processes() => { root.show-processes(); }
             }
-            Rectangle { height: 1px; background: Theme.border-subtle; }
-            NetBlock {
+            if root.session-metrics-visible : Rectangle { height: 1px; background: Theme.border-subtle; }
+            if root.session-metrics-visible : NetBlock {
                 net-top-up: root.net-top-up; net-top-down: root.net-top-down; net-top-history: root.net-top-history;
                 net-show-selector: root.net-show-selector; net-ifaces: root.net-ifaces; net-selected: root.net-selected;
                 net-top-up-history: root.net-top-up-history;
@@ -728,8 +731,8 @@ export component Sidebar inherits Rectangle {
                 rate-plot-resized(px) => { root.rate-plot-resized(px); }
                 latency-plot-resized(px) => { root.latency-plot-resized(px); }
             }
-            Rectangle { height: 1px; background: Theme.border-subtle; }
-            DiskBlock { vertical-stretch: 1; disks: root.disks; }
+            if root.session-metrics-visible : Rectangle { height: 1px; background: Theme.border-subtle; }
+            if root.session-metrics-visible : DiskBlock { vertical-stretch: 1; disks: root.disks; }
             Text {
                 text: "meatshell v" + root.app-version;
                 color: Theme.text-muted; font-size: Theme.fs-xs; horizontal-alignment: center;
@@ -768,7 +771,7 @@ export component Sidebar inherits Rectangle {
                     dock-drag-end() => { root.dock-drag-end(); }
                     collapse() => { root.toggle-collapse(); }
                 }
-                StatsBlock {
+                if root.session-metrics-visible : StatsBlock {
                     resource-title: root.resource-title;
                     system-info-available: root.system-info-available;
                     proc-available: root.proc-available;
@@ -779,8 +782,8 @@ export component Sidebar inherits Rectangle {
                     show-processes() => { root.show-processes(); }
                 }
             }
-            Rectangle { width: 1px; background: Theme.border-subtle; }
-            NetBlock {
+            if root.session-metrics-visible : Rectangle { width: 1px; background: Theme.border-subtle; }
+            if root.session-metrics-visible : NetBlock {
                 min-width: 220px;
                 net-top-up: root.net-top-up; net-top-down: root.net-top-down; net-top-history: root.net-top-history;
                 net-show-selector: root.net-show-selector; net-ifaces: root.net-ifaces; net-selected: root.net-selected;
@@ -800,8 +803,8 @@ export component Sidebar inherits Rectangle {
                 rate-plot-resized(px) => { root.rate-plot-resized(px); }
                 latency-plot-resized(px) => { root.latency-plot-resized(px); }
             }
-            Rectangle { width: 1px; background: Theme.border-subtle; }
-            DiskBlock { horizontal-stretch: 1; disks: root.disks; }
+            if root.session-metrics-visible : Rectangle { width: 1px; background: Theme.border-subtle; }
+            if root.session-metrics-visible : DiskBlock { horizontal-stretch: 1; disks: root.disks; }
         }
     }
 
