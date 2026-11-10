@@ -388,6 +388,7 @@ export component InterfacePanel inherits Rectangle {
     in-out property <bool> sftp-enabled: true;
     in-out property <bool> collapse-sidebar-default;
     in-out property <bool> local-latency-mode: false;
+    in-out property <bool> background-monitor: false;
     in-out property <bool> show-local-metric: true;
     in-out property <string> net-up-color-hex: "";
     in-out property <string> net-down-color-hex: "";
@@ -457,6 +458,7 @@ export component InterfacePanel inherits Rectangle {
     callback set-sftp-enabled(bool);
     callback set-collapse-sidebar-default(bool);
     callback set-local-latency-mode(bool);
+    callback set-background-monitor(bool);
     callback set-show-local-metric(bool);
     callback set-net-up-color(string) -> bool;
     callback set-net-down-color(string) -> bool;
@@ -1393,11 +1395,24 @@ export component InterfacePanel inherits Rectangle {
                 SettingRow {
                     label: root.lang-en ? "Local panel shows latency" : "本机面板显示延迟";
                     desc: root.lang-en
-                        ? "Default is realtime speed (this computer's upload and download). On: ICMP round trip to the active SSH or Telnet host, in ms. \"--\" means no remote host or no reply. The panel title switches it too."
-                        : "默认是实时速度（本机上行和下行）。打开后显示当前 SSH 或 Telnet 主机的 ICMP 往返毫秒。\"--\" 表示没有远程主机或没有回应。点击面板标题也能切换。";
+                        ? "A new config shows ICMP latency for the current SSH or Telnet host. A saved speed or latency choice is kept. This is an ICMP echo, not an SSH protocol round trip. \"--\" means no remote host or no reply, and no number is invented. The panel title switches the view too."
+                        : "新配置显示当前 SSH 或 Telnet 主机的 ICMP 延迟。已经保存的速度或延迟选择会保留。这是 ICMP 回显，不是 SSH 协议往返。\"--\" 表示没有远程主机或没有回应，不会编造数值。点击面板标题也能切换。";
                     Switch {
                         on: root.local-latency-mode;
                         toggled(v) => { root.local-latency-mode = v; root.set-local-latency-mode(v); }
+                    }
+                }
+                // Integration point: Settings → Sidebars, directly under the latency
+                // row. The 通用 category can move this row later; the property is
+                // `background-monitor` on AppWindow and InterfacePanel.
+                SettingRow {
+                    label: root.lang-en ? "Keep monitoring in the background" : "后台持续监控";
+                    desc: root.lang-en
+                        ? "Off by default. Local speed and ICMP follow one policy. Minimized or hidden: no sample. Unfocused: about every 5 seconds. Sidebar collapse or focus mode: no sample, even when this is on. None of those states redraw. Seconds without a sample are empty slots, not a copy or a bridge of the previous value. On: hidden and unfocused keep sampling about once a second, still without redrawing. The speed view freezes ICMP history for the same host; a different host or a disconnect clears it. Previously ICMP pinged about once a second whenever a target was set, including while hidden. This switch does not stop SSH keepalive, file transfer, session logs, or remote resource monitoring."
+                        : "默认关闭。本机速度和 ICMP 用同一套策略。最小化或隐藏时不采集；失焦大约每 5 秒采集一次；收起侧栏或专注模式即使打开也不采集。这些状态都不重绘。没有样本的秒是空槽，不会抄上一次的值，也不会把前后连成没有缺口的曲线。打开后，隐藏和失焦仍大约每秒采集，仍然不重绘。速度视图冻结同一主机的 ICMP 历史；换主机或断开会清掉。以前只要有目标，ICMP 大约每秒都 ping，隐藏时也一样。这个开关不会停止 SSH 保活、文件传输、会话日志或远端资源监控。";
+                    Switch {
+                        on: root.background-monitor;
+                        toggled(v) => { root.background-monitor = v; root.set-background-monitor(v); }
                     }
                 }
                 SettingRow {
