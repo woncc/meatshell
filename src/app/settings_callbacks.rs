@@ -21,8 +21,7 @@ pub(super) fn apply_saved_appearance(ctx: &WinCtx) {
     // "dark" / "light" → use that directly; "system" or unset → ask the OS;
     // OS unknown → fall back to dark.
     {
-        let pref = store.borrow().theme_pref().to_string();
-        window.set_color_reference(color_reference_id(&pref).into());
+        window.set_color_reference(store.borrow().color_reference().into());
         let is_dark = theme_pref_is_dark(&store.borrow());
         window.set_dark_mode(is_dark);
     }
