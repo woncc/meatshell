@@ -3,6 +3,27 @@
 All notable changes are documented here. 本文件记录所有重要变更。
 中英对照（中文在前，English after）.
 
+v0.8.0-slim.1
+
+相对已发布的 v0.7.13-slim.1。这是预发布，不替换 GitHub Latest，也不替换应用内的最新版检查。不恢复已删除的 MCP、CLI 或 automation。默认行为不变：「优先切换已有连接」和「关闭前询问」仍然默认关闭。没有做原生窗口点击验收。Mac CPU 采样仍未做。此前审计中的既有问题、以及更早的上游补丁，都不写成本预发布修复。
+Changes since the published v0.7.13-slim.1. This is a prerelease and does not replace GitHub Latest or the in-app update check. It does not restore removed MCP, CLI, or automation. Defaults stay the same: session reuse and close confirmation remain off. Native window clicks were not tested. Mac CPU sampling is still not done. Previously audited issues and older upstream patches are not claimed as fixed here.
+
+新功能 / Features
+
+- 设置 → 侧栏「优先切换已有连接」可选，默认关闭。打开后单击聚焦本窗口里同一会话 id、同一协议的已有标签；已连接优先于连接中，再优先于已断开。不按名称匹配，不跨窗口。双击是否另开、另开前是否确认是下级开关，顶层关闭时不生效。一次双击只产生一个动作。（PR #42）
+  Settings → Sidebar can prefer an existing connection. It stays off. When on, a click focuses a tab in this window with the same session id and protocol: connected, then connecting, then disconnected. It does not match by name or cross windows. Double-click and its confirmation are subordinate and do nothing while the parent is off. One double-click does one action. (PR #42)
+- 内置壁纸只留「简约·浅」和「简约·暗」。旧的内置壁纸 id 在加载时回退到简约·浅。用户自定义文件不删除。（PR #42）
+  Built-in wallpapers are only Simple Light and Simple Dark. Older built-in ids fall back to Simple Light when loaded. Custom files are not deleted. (PR #42)
+
+其他 / Other
+
+- 标签 ×、右键「关闭」和鼠标中键走同一个关闭入口。新设置「关闭前询问」默认关闭。打开后先询问，取消不断连、不删标签。不改变退出整个程序。（PR #42）
+  The tab close button, the close menu, and middle-click share one close path. Close confirmation stays off. Cancel does not disconnect or remove the tab. Quitting the application is unchanged. (PR #42)
+- 发布：本预发布 tag 只构建 Windows x86_64 的 zip/msi 和 macOS Apple Silicon 的 zip。带 `-` 的标签仍是预发布，且 `make_latest` 为 false，不替换 Latest。v0.7.13-slim.1 已发布的其他平台资产不删除。这些新包还没有构建。（PR #38）
+  Release: this prerelease tag builds only the Windows x86_64 zip/msi and the macOS Apple Silicon zip. A hyphenated tag stays a prerelease with `make_latest` false, so it does not replace Latest. Assets already published for v0.7.13-slim.1 stay. These new packages are not built yet. (PR #38)
+- 删除仓库里未被引用的 QQ 群二维码和封面图。这不表示安装包体积已经变小。（PR #40）
+  Remove unreferenced QQ-group QR and cover images from the repository. This does not mean the installer is smaller. (PR #40)
+
 今后默认发布 / Future default publishes
 
 下一次打 tag 或手动运行 Release 时，只启动 Windows x86_64（`.zip` 与 `.msi`）和 macOS Apple Silicon（`aarch64` 的 `.zip`）。不再启动 Linux、glibc 变体、Flatpak 或 Intel macOS。版本校验不变；带 `-` 的 slim 标签仍是预发布，并且 `make_latest` 为 false，不替换 Latest。这不改写 v0.7.13-slim.1 已经发布的多平台资产，也不删除或移动旧标签。
