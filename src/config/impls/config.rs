@@ -260,7 +260,9 @@ fn normalize_hex_color(value: &str) -> Option<String> {
 /// marks the migration done so it isn't re-applied.
 fn fresh_config() -> ConfigFile {
     ConfigFile {
-        wallpaper: "builtin:ms".to_string(),
+        wallpaper: "builtin:light".to_string(),
+        allow_double_open_connection: true,
+        confirm_extra_connection: true,
         welcome_as_sidebar: true,
         sidebar_dock: "right".to_string(),
         wallpaper_overlay: DEFAULT_WALLPAPER_OVERLAY,
@@ -312,6 +314,17 @@ fn migrate_defaults(cfg: &mut ConfigFile) -> bool {
         cfg.wallpaper_overlay = DEFAULT_WALLPAPER_OVERLAY;
     }
     cfg.defaults_rev = DEFAULTS_REV;
+    true
+}
+
+/// Built-in wallpapers other than 简约·浅 / 简约·暗 are gone. Map those ids to
+/// 简约·浅. Custom file paths and "无" stay. Does not delete any file.
+fn retire_removed_wallpapers(cfg: &mut ConfigFile) -> bool {
+    let next = crate::wallpaper::canonical_wallpaper_id(&cfg.wallpaper);
+    if next == cfg.wallpaper {
+        return false;
+    }
+    cfg.wallpaper = next.to_string();
     true
 }
 
@@ -562,6 +575,7 @@ impl ConfigStore {
                     // One-time push of the new default layout to existing users
                     // (only for items they never changed). (#new-user-defaults)
                     migrated |= migrate_defaults(&mut cfg);
+                    migrated |= retire_removed_wallpapers(&mut cfg);
                     cfg
                 }
                 Err(err) => {
@@ -1042,7 +1056,39 @@ impl ConfigStore {
     }
 
     pub fn set_wallpaper(&mut self, id: impl Into<String>) {
-        self.cache.wallpaper = id.into();
+        self.cache.wallpaper = crate::wallpaper::canonical_wallpaper_id(&id.into()).to_string();
+    }
+
+    pub fn prefer_existing_connection(&self) -> bool {
+        self.cache.prefer_existing_connection
+    }
+
+    pub fn set_prefer_existing_connection(&mut self, enabled: bool) {
+        self.cache.prefer_existing_connection = enabled;
+    }
+
+    pub fn allow_double_open_connection(&self) -> bool {
+        self.cache.allow_double_open_connection
+    }
+
+    pub fn set_allow_double_open_connection(&mut self, enabled: bool) {
+        self.cache.allow_double_open_connection = enabled;
+    }
+
+    pub fn confirm_extra_connection(&self) -> bool {
+        self.cache.confirm_extra_connection
+    }
+
+    pub fn set_confirm_extra_connection(&mut self, enabled: bool) {
+        self.cache.confirm_extra_connection = enabled;
+    }
+
+    pub fn confirm_tab_close(&self) -> bool {
+        self.cache.confirm_tab_close
+    }
+
+    pub fn set_confirm_tab_close(&mut self, enabled: bool) {
+        self.cache.confirm_tab_close = enabled;
     }
 
     /// Whether the SFTP panel follows the terminal's cd (default true).
@@ -2412,7 +2458,7 @@ mod tests {
     fn wallpaper_defaults_to_ms_but_keeps_explicit_choice() {
         // Fresh install (no file).
         let fresh = fresh_config();
-        assert_eq!(fresh.wallpaper, "builtin:ms");
+        assert_eq!(fresh.wallpaper, "builtin:light");
         assert!((fresh.wallpaper_overlay - 0.85).abs() < f32::EPSILON);
         // User upgrading from before the feature: JSON without the key.
         let cfg: ConfigFile = serde_json::from_str("{}").unwrap();
@@ -2431,6 +2477,37 @@ mod tests {
         };
         assert!(!migrate_defaults(&mut cfg));
         assert_eq!(cfg.wallpaper, "builtin:miku");
+        assert!(retire_removed_wallpapers(&mut cfg));
+        assert_eq!(cfg.wallpaper, "builtin:light");
+        let mut custom = ConfigFile {
+            wallpaper: "/tmp/my-wallpaper.png".to_string(),
+            ..ConfigFile::default()
+        };
+        assert!(!retire_removed_wallpapers(&mut custom));
+        assert_eq!(custom.wallpaper, "/tmp/my-wallpaper.png");
+        let mut none = ConfigFile {
+            wallpaper: String::new(),
+            ..ConfigFile::default()
+        };
+        assert!(!retire_removed_wallpapers(&mut none));
+    }
+
+    #[test]
+    fn connection_reuse_defaults_stay_off_and_round_trip() {
+        let cfg: ConfigFile = serde_json::from_str("{}").unwrap();
+        assert!(!cfg.prefer_existing_connection);
+        assert!(cfg.allow_double_open_connection);
+        assert!(cfg.confirm_extra_connection);
+        let cfg: ConfigFile = serde_json::from_str(
+            r#"{"prefer_existing_connection":true,"allow_double_open_connection":false,"confirm_extra_connection":false}"#,
+        )
+        .unwrap();
+        assert!(cfg.prefer_existing_connection);
+        assert!(!cfg.allow_double_open_connection);
+        assert!(!cfg.confirm_extra_connection);
+        assert!(!cfg.confirm_tab_close);
+        let cfg: ConfigFile = serde_json::from_str(r#"{"confirm_tab_close":true}"#).unwrap();
+        assert!(cfg.confirm_tab_close);
     }
 
     #[test]

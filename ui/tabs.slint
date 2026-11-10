@@ -65,6 +65,11 @@ component SingleTab inherits Rectangle {
                 root.grab-offset = self.mouse-x;
                 root.pressing = true;
                 root.dragging = false;
+            } else if (e.kind == PointerEventKind.down && e.button == PointerEventButton.middle) {
+                // Close this tab only. Do not select it, and do not open another.
+                if (root.info.kind != "welcome") {
+                    root.closed();
+                }
             } else if (e.kind == PointerEventKind.down && e.button == PointerEventButton.right) {
                 root.context-requested(
                     self.absolute-position.x + self.mouse-x,

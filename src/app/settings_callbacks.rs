@@ -174,6 +174,10 @@ pub(super) fn wire_interface_toggles(
     window.set_paste_confirm_enabled(store.borrow().paste_confirm_enabled());
     window.set_extra_paste_shortcuts_enabled(store.borrow().extra_paste_shortcuts_enabled());
     window.set_zen_mode(store.borrow().zen_mode());
+    window.set_prefer_existing_connection(store.borrow().prefer_existing_connection());
+    window.set_allow_double_open_connection(store.borrow().allow_double_open_connection());
+    window.set_confirm_extra_connection(store.borrow().confirm_extra_connection());
+    window.set_confirm_tab_close(store.borrow().confirm_tab_close());
     window.set_hide_ssh_identity(store.borrow().hide_ssh_identity());
     {
         let store = store.clone();
@@ -280,6 +284,38 @@ pub(super) fn wire_session_log_settings(ctx: &WinCtx) {
         window.on_set_extra_paste_shortcuts_enabled(move |enabled| {
             let mut s = store.borrow_mut();
             s.set_extra_paste_shortcuts_enabled(enabled);
+            let _ = s.save();
+        });
+    }
+    {
+        let store = store.clone();
+        window.on_set_prefer_existing_connection(move |enabled| {
+            let mut s = store.borrow_mut();
+            s.set_prefer_existing_connection(enabled);
+            let _ = s.save();
+        });
+    }
+    {
+        let store = store.clone();
+        window.on_set_allow_double_open_connection(move |enabled| {
+            let mut s = store.borrow_mut();
+            s.set_allow_double_open_connection(enabled);
+            let _ = s.save();
+        });
+    }
+    {
+        let store = store.clone();
+        window.on_set_confirm_extra_connection(move |enabled| {
+            let mut s = store.borrow_mut();
+            s.set_confirm_extra_connection(enabled);
+            let _ = s.save();
+        });
+    }
+    {
+        let store = store.clone();
+        window.on_set_confirm_tab_close(move |enabled| {
+            let mut s = store.borrow_mut();
+            s.set_confirm_tab_close(enabled);
             let _ = s.save();
         });
     }

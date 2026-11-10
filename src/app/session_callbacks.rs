@@ -2,6 +2,75 @@
 
 use super::*;
 
+fn lookup_listed_session(store: &ConfigStore, id: &str) -> Option<Session> {
+    if id.starts_with("system:") {
+        builtin_local_sessions(store.wsl_profiles())
+            .into_iter()
+            .find(|session| session.id == id)
+    } else {
+        store.get(id).cloned()
+    }
+}
+
+fn open_tabs_in_this_window(
+    tabs: &VecModel<TabInfo>,
+    statuses: &TabStatuses,
+    active_id: &str,
+) -> Vec<super::connection_policy::OpenTab> {
+    let statuses = statuses.lock().unwrap();
+    let mut open = Vec::new();
+    for index in 0..tabs.row_count() {
+        let Some(row) = tabs.row_data(index) else {
+            continue;
+        };
+        let tab_id = row.id.to_string();
+        let Some(status) = statuses.get(&tab_id) else {
+            continue;
+        };
+        if status.session_id.is_empty() {
+            continue;
+        }
+        open.push(super::connection_policy::OpenTab {
+            tab_id: tab_id.clone(),
+            session_id: status.session_id.clone(),
+            kind: status.kind,
+            phase: super::connection_policy::Phase::from_u8(status.state),
+            active: tab_id == active_id,
+        });
+    }
+    open
+}
+
+fn focus_open_tab(
+    window: &AppWindow,
+    layout: &RefCell<crate::layout::Layout>,
+    content: (f32, f32),
+    tabs_model: &VecModel<TabInfo>,
+    panes_model: &VecModel<PaneInfo>,
+    splitters_model: &VecModel<SplitterInfo>,
+    bufs: &TermBuffers,
+    tab_id: &str,
+) {
+    {
+        let mut lay = layout.borrow_mut();
+        if let Some(pane) = lay.leaf_of_tab(tab_id) {
+            lay.focused = pane;
+            if let Some(leaf) = lay.leaf_mut(pane) {
+                leaf.active = tab_id.to_string();
+            }
+        }
+    }
+    refresh_panes(
+        window,
+        &layout.borrow(),
+        content,
+        tabs_model,
+        panes_model,
+        splitters_model,
+    );
+    rebuild_tab_display(window, bufs, tab_id);
+}
+
 fn session_probe_host(session: &Session) -> String {
     match session.kind {
         SessionKind::Ssh | SessionKind::Telnet => {
@@ -1448,6 +1517,8 @@ pub(super) fn wire_session_callbacks(
     }
 
     // Connect session -> open a new terminal tab.
+    let panes_for_reuse = panes_model.clone();
+    let splitters_for_reuse = splitters_model.clone();
     {
         let weak = window.as_weak();
         let store = store.clone();
@@ -1547,6 +1618,7 @@ pub(super) fn wire_session_callbacks(
                     host: conn_label.clone(),
                     user: session.user.clone(),
                     session_id: id.clone(),
+                    kind: session.kind,
                     state: 0,
                     is_local: session.kind == SessionKind::Local,
                     probe_host: session_probe_host(&session),
@@ -1727,6 +1799,126 @@ pub(super) fn wire_session_callbacks(
                 tab_routes: tab_routes.clone(),
             };
             start_session_in_tab(&tab_id, session, &ctx);
+        });
+    }
+
+    // Optional "prefer an existing connection". Default off: the list still
+    // calls connect-session directly and this callback is never used.
+    {
+        let weak = window.as_weak();
+        let store = store.clone();
+        let tabs_model = tabs_model.clone();
+        let tab_statuses = tab_statuses.clone();
+        let layout = layout.clone();
+        let content_size = content_size.clone();
+        let panes_model = panes_for_reuse.clone();
+        let splitters_model = splitters_for_reuse.clone();
+        let bufs = bufs.clone();
+        let arbiter = Rc::new(RefCell::new(super::connection_policy::ClickArbiter::default()));
+        let timer = Rc::new(slint::Timer::default());
+        let pending_extra = Rc::new(RefCell::new(None::<String>));
+
+        let dispatch = {
+            let weak = weak.clone();
+            let store = store.clone();
+            let tabs_model = tabs_model.clone();
+            let tab_statuses = tab_statuses.clone();
+            let layout = layout.clone();
+            let content_size = content_size.clone();
+            let panes_model = panes_model.clone();
+            let splitters_model = splitters_model.clone();
+            let bufs = bufs.clone();
+            let pending_extra = pending_extra.clone();
+            move |session_id: String, gesture: super::connection_policy::Gesture| {
+                let Some(window) = weak.upgrade() else {
+                    return;
+                };
+                let Some(session) = lookup_listed_session(&store.borrow(), &session_id) else {
+                    return;
+                };
+                let prefs = {
+                    let settings = store.borrow();
+                    super::connection_policy::ReusePrefs {
+                        prefer_existing: settings.prefer_existing_connection(),
+                        allow_double_open: settings.allow_double_open_connection(),
+                        confirm_extra: settings.confirm_extra_connection(),
+                    }
+                };
+                let open = open_tabs_in_this_window(
+                    &tabs_model,
+                    &tab_statuses,
+                    window.get_active_tab_id().as_str(),
+                );
+                match super::connection_policy::decide(
+                    prefs,
+                    gesture,
+                    &session_id,
+                    session.kind,
+                    &open,
+                ) {
+                    super::connection_policy::OpenDecision::OpenNew => {
+                        window.invoke_connect_session(session_id.into());
+                    }
+                    super::connection_policy::OpenDecision::Focus(tab_id) => {
+                        focus_open_tab(
+                            &window,
+                            &layout,
+                            content_size.get(),
+                            &tabs_model,
+                            &panes_model,
+                            &splitters_model,
+                            &bufs,
+                            &tab_id,
+                        );
+                    }
+                    super::connection_policy::OpenDecision::ConfirmOpen => {
+                        *pending_extra.borrow_mut() = Some(session_id);
+                        window.set_extra_connect_name(session.name.into());
+                        window.set_extra_connect_open(true);
+                    }
+                }
+            }
+        };
+
+        let dispatch_press = dispatch.clone();
+        let arbiter_press = arbiter.clone();
+        let timer_press = timer.clone();
+        window.on_reuse_session_press(move |id: SharedString| {
+            let now = std::time::Instant::now();
+            match arbiter_press.borrow_mut().click(id.as_str(), now) {
+                super::connection_policy::ArbiterStep::Arm { .. } => {
+                    let arbiter = arbiter_press.clone();
+                    let dispatch = dispatch_press.clone();
+                    timer_press.start(
+                        slint::TimerMode::SingleShot,
+                        super::connection_policy::DOUBLE_CLICK_WINDOW,
+                        move || {
+                            if let Some(id) = arbiter.borrow_mut().expire(std::time::Instant::now())
+                            {
+                                dispatch(id, super::connection_policy::Gesture::Single);
+                            }
+                        },
+                    );
+                }
+                super::connection_policy::ArbiterStep::FireDouble { session_id } => {
+                    timer_press.stop();
+                    dispatch_press(session_id, super::connection_policy::Gesture::Double);
+                }
+            }
+        });
+        let pending_ok = pending_extra.clone();
+        let weak_ok = weak.clone();
+        window.on_extra_connect_accept(move || {
+            let Some(id) = pending_ok.borrow_mut().take() else {
+                return;
+            };
+            if let Some(window) = weak_ok.upgrade() {
+                window.invoke_connect_session(id.into());
+            }
+        });
+        let pending_no = pending_extra.clone();
+        window.on_extra_connect_cancel(move || {
+            pending_no.borrow_mut().take();
         });
     }
 

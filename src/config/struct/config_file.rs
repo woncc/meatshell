@@ -16,6 +16,10 @@ fn default_wsl_home() -> String {
     "~".to_string()
 }
 
+fn default_true() -> bool {
+    true
+}
+
 // Testing-stage MCP defaults. Switch these serde defaults to false before the
 // feature is promoted from preview to a stable release.
 fn default_mcp_preview_enabled() -> bool {
@@ -195,6 +199,23 @@ pub struct ConfigFile {
     /// Hide auxiliary panels and edge strips so the terminal fills the window.
     #[serde(default)]
     pub zen_mode: bool,
+    /// When true, a session-list click focuses an existing tab for that saved
+    /// session in this window. Missing or false keeps the historical behavior:
+    /// every click opens a new connection.
+    #[serde(default)]
+    pub prefer_existing_connection: bool,
+    /// When prefer-existing is on, a double-click may open another connection.
+    /// Ignored while the parent switch is off.
+    #[serde(default = "default_true")]
+    pub allow_double_open_connection: bool,
+    /// When both switches above are on, ask before that extra connection.
+    /// Ignored otherwise.
+    #[serde(default = "default_true")]
+    pub confirm_extra_connection: bool,
+    /// Ask before closing one session tab (×, tab menu, or middle-click).
+    /// Off by default. Does not apply to quitting the application.
+    #[serde(default)]
+    pub confirm_tab_close: bool,
     /// Screenshot redaction. Default off: SSH/Telnet/RDP usernames and hosts
     /// stay visible. On replaces those labels with a placeholder; the stored
     /// session and the live connection are unchanged.
