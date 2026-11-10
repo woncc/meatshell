@@ -1101,12 +1101,7 @@ pub(super) fn wire_session_callbacks(
         let sessions_model = sessions_model.clone();
         let registry = registry.clone();
         window.on_delete_group(move |name: SharedString| {
-            if store
-                .borrow()
-                .sessions()
-                .iter()
-                .any(|session| session.group == name.as_str())
-            {
+            if store.borrow().group_has_sessions(name.as_str()) {
                 return;
             }
             {
