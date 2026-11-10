@@ -3,6 +3,43 @@
 All notable changes are documented here. 本文件记录所有重要变更。
 中英对照（中文在前，English after）.
 
+v0.7.13
+
+相对 v0.7.12 的新增。v0.7.12 已经发布的 7 个上游补丁不在这里再列为新功能。
+Changes since v0.7.12. The seven upstream patches already shipped in v0.7.12 are not listed again as new features.
+
+修复 / Fixes
+
+- 远程 `rz` 的文件选择框改由界面打开，并挂到当前正显示该标签的窗口。Windows 上因此能留在置顶主窗口前面；取消或空选择仍发送原来的 ZMODEM 取消。标签换到别的窗口后再执行 `rz`，用的是当时的窗口。macOS 和其他平台仍不设父窗口，避免变成 sheet。（#28，PR #29）
+  Remote `rz` now asks the UI for files and parents the picker to the window that currently holds the tab. On Windows it stays above a pinned window. Cancel and an empty selection still send the existing ZMODEM cancel. Other platforms stay unowned so macOS does not turn the picker into a sheet. (#28, PR #29)
+
+其他 / Other
+
+- 相对已发布的 v0.7.12：该标签实际只有 Windows zip 和 msi。`ddaf2b7` 已把发布工作流从临时的仅 Windows 矩阵恢复为原有完整任务（Linux x86_64 / aarch64、glibc 2.28、Flatpak、macOS 两个架构）。打上本版 tag 后这些任务会再次运行。恢复构建任务不等于安装包已经生成或经过实机验证；本版本目前还没有这些多平台资产。
+  Compared with published v0.7.12, which shipped only the Windows zip and msi, `ddaf2b7` already restored the previous full release jobs (Linux x86_64/aarch64, glibc 2.28, Flatpak, and both macOS architectures). Those jobs run again when this version is tagged. Restoring the jobs does not mean the packages have been built or checked on a device; this version does not yet have those multi-platform assets.
+- 相对 `ddaf2b7` 已恢复的 `release.yml`，这次只把 2026-11-02 退役的 `macos-14` 换成 `macos-15`（Apple Silicon 本机，以及在 Apple Silicon 上交叉编译 Intel）。没有新增作业。更换 runner 也不等于 macOS 安装包已经构建成功。
+  Against that already restored `release.yml`, this change only replaces retired `macos-14` with `macos-15` (native Apple Silicon, plus an Intel cross-compile on Apple Silicon). No job was added. The runner change does not mean a macOS package has been built.
+
+此前已发布，不是本版新增 / Already released, not new here
+
+- v0.7.12 已包含 #28 的 7 个上游提交：串口下拉 `8fc6870`、macOS 不建托盘 `fd83068`、macOS Touch Bar `69500e5`、命令历史定位最新 `68d48f2`、死代码清理 `4302e14`、vt100 0.16.2 `80db320`、窗口置顶和 Windows 对话框父窗口 `0527db7`。完整对照见已合入的 docs/upstream-sync.md（PR #31），本版不重复那份审计。
+  v0.7.12 already contains the seven #28 upstream commits listed above. The fuller comparison is in the merged docs/upstream-sync.md (PR #31); this release does not repeat that audit.
+
+已确认因缺陷未采用 / Not taken because of known defects
+
+- `806c120`、`1605cf6`、`2ea7d10`、`d31e619`：断开或重连时保留终端历史。后台标签或侧栏隐藏时断开仍会清历史；在 vim 等备用屏幕里重连后解析器不重置；查看历史时光标行越界；并退回了断开后释放内存的修复。
+  Those four commits try to keep terminal history across disconnect. They still clear history for a background tab or a hidden sidebar, do not reset the parser after reconnecting from an alternate screen, can move the history cursor out of range, and they revert the fix that frees memory on disconnect.
+
+有意不采用，不是缺陷 / Intentionally not taken, not defects
+
+- `f7752b3`：上游自己的版本号和 changelog。本仓使用自己的版本和本文件。
+  `f7752b3` is upstream's own version and changelog. This fork keeps its own.
+- 挑选上述补丁时没有整份合并上游的合并提交；那些提交没有另外的产品变化。其余尚未同步的上游提交不在本版定性。
+  The upstream merge commits around those patches were not copied wholesale; they add no separate product change. Other upstream commits that are not in this fork are not classified here.
+
+Windows 实机还没有点选验收 `rz` 文件框。这只说明实机点击未做，修复已经合入 `main`。
+The `rz` picker has not been click-tested on a Windows machine. That is unverified on-device behavior, not an unmerged fix.
+
 v0.7.12
 
 本版合并了 7 个原项目上游提交（作者：yituorou、nilxbit、lyj404），并做了适配。(#28)
