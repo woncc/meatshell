@@ -749,3 +749,12 @@ msgstr "Show local speed"
 
 msgid "Show latency"
 msgstr "Show latency"
+
+msgid "+ New group"
+msgstr "+ New group"
+
+msgid "Delete this empty group? Sessions are not deleted."
+msgstr "Delete this empty group? Sessions are not deleted."
+
+msgid "Delete this session? This cannot be undone."
+msgstr "Delete this session? This cannot be undone."

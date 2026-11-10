@@ -607,3 +607,110 @@ fn saved_secret_reveal_flows_through_the_real_app_window() {
     .join()
     .unwrap();
 }
+
+fn render_frame(window: &MinimalSoftwareWindow) -> Vec<slint::Rgb8Pixel> {
+    let mut pixels = vec![slint::Rgb8Pixel::default(); 1000 * 850];
+    window.request_redraw();
+    assert!(window.draw_if_needed(|renderer| {
+        renderer.render(&mut pixels, 1000);
+    }));
+    pixels
+}
+
+fn save_frame(pixels: &[slint::Rgb8Pixel], name: &str) {
+    let bytes: Vec<u8> = pixels.iter().flat_map(|p| [p.r, p.g, p.b]).collect();
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
+    std::fs::create_dir_all(&dir).unwrap();
+    image::save_buffer(dir.join(name), &bytes, 1000, 850, image::ColorType::Rgb8).unwrap();
+}
+
+fn px(pixels: &[slint::Rgb8Pixel], x: i32, y: i32) -> (u8, u8, u8) {
+    let p = pixels[(y * 1000 + x) as usize];
+    (p.r, p.g, p.b)
+}
+
+/// Linux software-renderer check for the settings page and the list confirm.
+/// It is not a macOS click test. It checks that a light panel stays near-white,
+/// that About stays inside settings, and that the confirm card is the window-
+/// centered light surface rather than a clipped sidebar fragment.
+#[test]
+fn light_settings_and_list_confirm_stay_readable() {
+    std::thread::spawn(|| {
+        let (ui, window, _) = host();
+        crate::i18n::set_language("zh");
+        crate::i18n::apply_to_slint();
+        ui.set_lang_en(false);
+        ui.set_dark_mode(false);
+        ui.set_color_reference("sunrise".into());
+        ui.set_interface_open(true);
+        ui.set_settings_page("about".into());
+        ui.set_app_version("0.8.1-test".into());
+        settle(&window);
+        assert!(!ui.get_about_open());
+        assert!(ui.get_interface_open());
+        let about = render_frame(&window);
+        save_frame(&about, "light-about.png");
+        let (r, g, b) = px(&about, 500, 400);
+        assert!(
+            r > 230 && g > 230 && b > 230,
+            "light settings content should sit on a near-white panel, got {r},{g},{b}"
+        );
+        let dark_text = about
+            .iter()
+            .filter(|p| p.r < 50 && p.g < 50 && p.b < 50)
+            .count();
+        assert!(
+            dark_text > 30,
+            "light mode needs dark text, got {dark_text}"
+        );
+        let gold = about
+            .iter()
+            .filter(|p| p.r > 150 && p.g > 90 && p.g < 190 && p.b < 80)
+            .count();
+        assert!(gold > 5, "sunrise accent should be visible, got {gold}");
+
+        ui.set_dark_mode(true);
+        ui.set_color_reference("robbyrussell".into());
+        settle(&window);
+        let dark = render_frame(&window);
+        save_frame(&dark, "dark-about.png");
+        let (r, g, b) = px(&dark, 500, 400);
+        assert!(
+            r < 80 && g < 80 && b < 90,
+            "dark settings content should sit on a dark panel, got {r},{g},{b}"
+        );
+        let green = dark
+            .iter()
+            .filter(|p| {
+                let (r, g, b) = (p.r as u16, p.g as u16, p.b as u16);
+                g > r + 40 && g > b + 40 && g > 80
+            })
+            .count();
+        assert!(
+            green > 5,
+            "robbyrussell accent should be visible, got {green}"
+        );
+
+        ui.set_dark_mode(false);
+        ui.set_color_reference("sunrise".into());
+        ui.set_list_confirm_kind("group".into());
+        ui.set_list_confirm_text("删除这个空分组？不会删除其中的会话。".into());
+        ui.set_list_confirm_open(true);
+        settle(&window);
+        assert!(!ui.get_about_open());
+        let kind = format!("{:?}", ui.get_active_modal());
+        assert!(
+            kind.to_ascii_lowercase().contains("list"),
+            "list confirm should cover settings, got {kind}"
+        );
+        let confirm = render_frame(&window);
+        save_frame(&confirm, "light-confirm.png");
+        let (r, g, b) = px(&confirm, 500, 425);
+        assert!(
+            r > 230 && g > 230 && b > 230,
+            "confirm card should be the light window surface, got {r},{g},{b}"
+        );
+    })
+    .join()
+    .unwrap();
+}

@@ -104,8 +104,14 @@ pub struct ConfigFile {
     #[serde(default)]
     pub language: String,
     /// Theme preference: "system" (default) | "dark" | "light".
+    /// Legacy `ref:<id>` values are split on load into `color_reference` plus
+    /// the light/dark that id used to force. A reference is not a theme.
     #[serde(default)]
     pub theme_pref: String,
+    /// Accent-only design reference: "" | "robbyrussell" | "sunaku" | "sunrise".
+    /// It never selects the light or dark palette.
+    #[serde(default)]
+    pub color_reference: String,
     /// Platform renderer preference. Windows uses software/auto/gpu; macOS uses
     /// software/femtovg/skia. Missing or foreign-platform values use the platform default.
     #[serde(default)]
