@@ -407,6 +407,12 @@ export component SftpPanel inherits Rectangle {
                             path-input.clear-selection();
                         }
                     }
+                    if copy-ta.has-hover : Text {
+                        x: 0; y: parent.height + 2px;
+                        text: @tr("Copy path");
+                        color: Theme.text-primary;
+                        font-size: Theme.fs-xs;
+                    }
                     Text { text: "\u{E14D}"; font-family: "Material Icons";
                            color: Theme.text-secondary; font-size: Theme.fs-sm;
                            horizontal-alignment: center; vertical-alignment: center; }
@@ -426,6 +432,12 @@ export component SftpPanel inherits Rectangle {
                             root.navigate(path-input.text);
                         }
                     }
+                    if pj-ta.has-hover : Text {
+                        x: 0; y: parent.height + 2px;
+                        text: @tr("Paste path and open");
+                        color: Theme.text-primary;
+                        font-size: Theme.fs-xs;
+                    }
                     Text { text: "\u{E14F}"; font-family: "Material Icons";
                            color: Theme.text-secondary; font-size: Theme.fs-sm;
                            horizontal-alignment: center; vertical-alignment: center; }
@@ -439,6 +451,12 @@ export component SftpPanel inherits Rectangle {
                     up-ta := TouchArea {
                         mouse-cursor: pointer;
                         clicked => { root.navigate(".."); }
+                    }
+                    if up-ta.has-hover : Text {
+                        x: 0; y: parent.height + 2px;
+                        text: @tr("Up one folder");
+                        color: Theme.text-primary;
+                        font-size: Theme.fs-xs;
                     }
                     Text { text: "↑"; color: Theme.text-secondary; font-size: Theme.fs-md;
                            horizontal-alignment: center; vertical-alignment: center; }
@@ -567,6 +585,7 @@ export component SftpPanel inherits Rectangle {
                     border-radius: Theme.radius-sm;
                     background: dls-ta.has-hover ? Theme.bg-hover : transparent;
                     dls-ta := TouchArea { mouse-cursor: pointer; clicked => { root.download-selected(); } }
+                    if dls-ta.has-hover : Text { y: parent.height + 2px; text: @tr("Download selected"); color: Theme.text-primary; font-size: Theme.fs-xs; }
                     Text { text: "\u{E2C4}"; font-family: "Material Icons"; color: Theme.text-secondary;
                            font-size: Theme.fs-md; horizontal-alignment: center; vertical-alignment: center; }
                 }
@@ -575,6 +594,7 @@ export component SftpPanel inherits Rectangle {
                     border-radius: Theme.radius-sm;
                     background: dels-ta.has-hover ? Theme.danger.with-alpha(0.18) : transparent;
                     dels-ta := TouchArea { mouse-cursor: pointer; clicked => { root.delete-selected(); } }
+                    if dels-ta.has-hover : Text { y: parent.height + 2px; text: @tr("Delete selected"); color: Theme.text-primary; font-size: Theme.fs-xs; }
                     Text { text: "\u{E872}"; font-family: "Material Icons"; color: Theme.danger;
                            font-size: Theme.fs-md; horizontal-alignment: center; vertical-alignment: center; }
                 }
@@ -588,6 +608,7 @@ export component SftpPanel inherits Rectangle {
                         mouse-cursor: pointer;
                         clicked => { root.refresh(root.current-path); }
                     }
+                    if ref-ta.has-hover : Text { y: parent.height + 2px; text: @tr("Refresh"); color: Theme.text-primary; font-size: Theme.fs-xs; }
                     Text { text: "\u{E5D5}"; font-family: "Material Icons";
                            color: Theme.text-secondary; font-size: Theme.fs-sm;
                            horizontal-alignment: center; vertical-alignment: center; }
@@ -601,6 +622,12 @@ export component SftpPanel inherits Rectangle {
                     min-ta := TouchArea {
                         mouse-cursor: pointer;
                         clicked => { root.toggle-collapsed(); }
+                    }
+                    if min-ta.has-hover : Text {
+                        y: parent.height + 2px;
+                        text: root.collapsed ? @tr("Expand panel") : @tr("Collapse panel");
+                        color: Theme.text-primary;
+                        font-size: Theme.fs-xs;
                     }
                     // expand_less (▲, restore) when collapsed, expand_more (▼) otherwise.
                     Text { text: root.collapsed ? "\u{E5CE}" : "\u{E5CF}"; font-family: "Material Icons";

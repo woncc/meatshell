@@ -429,7 +429,7 @@ export component InterfacePanel inherits Rectangle {
     in-out property <string> wsl-new-distribution;
     in-out property <string> wsl-new-directory: "~";
 
-    property <string> ifd-page: "font";
+    property <string> ifd-page: "general";
     property <string> new-rule-pattern;
     property <bool> new-rule-regex;
     property <bool> new-rule-case-sensitive;
@@ -459,6 +459,11 @@ export component InterfacePanel inherits Rectangle {
     callback set-collapse-sidebar-default(bool);
     callback set-local-latency-mode(bool);
     callback set-background-monitor(bool);
+    callback set-language(string);
+    callback open-shortcuts();
+    callback toggle-theme();
+    callback set-color-reference(string);
+    callback open-about();
     callback set-show-local-metric(bool);
     callback set-net-up-color(string) -> bool;
     callback set-net-down-color(string) -> bool;
@@ -512,29 +517,19 @@ export component InterfacePanel inherits Rectangle {
                     spacing: 2px;
                     alignment: start;
                 NavItem {
-                    icon: "\u{E167}"; label: root.lang-en ? "Font" : "字体";
-                    active: root.ifd-page == "font";
-                    clicked => { root.ifd-page = "font"; }
+                    icon: "\u{E8B8}"; label: root.lang-en ? "General" : "通用";
+                    active: root.ifd-page == "general";
+                    clicked => { root.ifd-page = "general"; }
                 }
                 NavItem {
-                    icon: "\u{E312}"; label: root.lang-en ? "Input" : "输入";
-                    active: root.ifd-page == "input";
-                    clicked => { root.ifd-page = "input"; }
+                    icon: "\u{E40A}"; label: root.lang-en ? "Appearance" : "外观";
+                    active: root.ifd-page == "appearance";
+                    clicked => { root.ifd-page = "appearance"; }
                 }
                 NavItem {
-                    icon: "\u{E1B1}"; label: root.lang-en ? "Rendering" : "渲染";
-                    active: root.ifd-page == "renderer";
-                    clicked => { root.ifd-page = "renderer"; }
-                }
-                NavItem {
-                    icon: "\u{E8D4}"; label: root.lang-en ? "Output" : "输出高亮";
-                    active: root.ifd-page == "output";
-                    clicked => { root.ifd-page = "output"; }
-                }
-                NavItem {
-                    icon: "\u{E1BC}"; label: root.lang-en ? "Wallpaper" : "壁纸";
-                    active: root.ifd-page == "wallpaper";
-                    clicked => { root.ifd-page = "wallpaper"; }
+                    icon: "\u{E873}"; label: root.lang-en ? "Sessions" : "会话";
+                    active: root.ifd-page == "session";
+                    clicked => { root.ifd-page = "session"; }
                 }
                 NavItem {
                     icon: "\u{E2C7}"; label: "SFTP";
@@ -552,29 +547,8 @@ export component InterfacePanel inherits Rectangle {
                     clicked => { root.ifd-page = "sidebar"; }
                 }
                 NavItem {
-                    icon: "\u{E627}"; label: root.lang-en ? "Session sync" : "会话同步";
-                    active: root.ifd-page == "sync";
-                    clicked => { root.ifd-page = "sync"; }
-                }
-                NavItem {
-                    icon: "\u{E2C2}"; label: "WebDAV";
-                    active: root.ifd-page == "webdav";
-                    clicked => { root.ifd-page = "webdav"; }
-                }
-                NavItem {
-                    icon: "\u{E2C4}"; label: root.lang-en ? "Download" : "下载";
-                    active: root.ifd-page == "download";
-                    clicked => { root.ifd-page = "download"; }
-                }
-                NavItem {
-                    icon: "\u{E873}"; label: root.lang-en ? "Session log" : "会话日志";
-                    active: root.ifd-page == "session-log";
-                    clicked => { root.ifd-page = "session-log"; }
-                }
-                NavItem {
-                    icon: "\u{E923}"; label: root.lang-en ? "Update check" : "新版本提示";
-                    active: root.ifd-page == "update";
-                    clicked => { root.ifd-page = "update"; }
+                    icon: "\u{E88E}"; label: @tr("About");
+                    clicked => { root.open-about(); }
                 }
                 }
             }
@@ -597,13 +571,36 @@ export component InterfacePanel inherits Rectangle {
                     width: settings-scroll.visible-width;
 
             // --- Font page ---------------------------------------------
-            if root.ifd-page == "font" : VerticalLayout {
+            if root.ifd-page == "appearance" : VerticalLayout {
                 padding-left: 20px;
                 padding-right: 20px;
                 padding-top: 14px;
                 spacing: 0;
                 alignment: start;
 
+                SectionHeader { text: root.lang-en ? "APPEARANCE" : "外观"; height: 24px; }
+                SettingRow {
+                    label: root.lang-en ? "Theme" : "主题";
+                    desc: root.lang-en
+                        ? "Light or dark. The toolbar button does the same."
+                        : "浅色或深色。工具栏按钮作用相同。";
+                    GhostButton {
+                        text: root.lang-en ? "Toggle theme" : "切换主题";
+                        clicked => { root.toggle-theme(); }
+                    }
+                }
+                SettingRow {
+                    label: root.lang-en ? "Prompt color references" : "提示符配色参考";
+                    desc: root.lang-en
+                        ? "Design references only. They recolor the app accent. They are not Oh My Zsh themes, and nothing is installed or executed."
+                        : "只是设计参考，只改应用强调色。不是 Oh My Zsh 主题，不会安装或执行任何脚本。";
+                    HorizontalLayout {
+                        spacing: 6px;
+                        GhostButton { text: "robbyrussell"; clicked => { root.set-color-reference("robbyrussell"); } }
+                        GhostButton { text: "sunaku"; clicked => { root.set-color-reference("sunaku"); } }
+                        GhostButton { text: "sunrise"; clicked => { root.set-color-reference("sunrise"); } }
+                    }
+                }
                 SectionHeader { text: root.lang-en ? "FONT" : "字体"; height: 24px; }
                 SettingRow {
                     label: root.lang-en ? "Terminal font" : "终端字体";
@@ -726,13 +723,39 @@ export component InterfacePanel inherits Rectangle {
             }
 
             // --- Input page -------------------------------------------
-            if root.ifd-page == "input" : VerticalLayout {
+            if root.ifd-page == "general" : VerticalLayout {
                 padding-left: 20px;
                 padding-right: 20px;
                 padding-top: 14px;
                 spacing: 0;
                 alignment: start;
 
+                SectionHeader { text: root.lang-en ? "GENERAL" : "通用"; height: 24px; }
+                SettingRow {
+                    label: root.lang-en ? "Language" : "语言";
+                    desc: root.lang-en ? "Switch the interface language." : "切换界面语言。";
+                    GhostButton {
+                        text: root.lang-en ? "切换到中文" : "Switch to English";
+                        clicked => { root.set-language(root.lang-en ? "zh" : "en"); }
+                    }
+                }
+                SettingRow {
+                    label: root.lang-en ? "Shortcuts" : "快捷键";
+                    GhostButton {
+                        text: root.lang-en ? "Show shortcuts" : "查看快捷键";
+                        clicked => { root.open-shortcuts(); }
+                    }
+                }
+                SettingRow {
+                    label: root.lang-en ? "Keep monitoring in the background" : "后台持续监控";
+                    desc: root.lang-en
+                        ? "Off by default. Local speed and ICMP follow one policy. Minimized or hidden: no sample. Unfocused: about every 5 seconds. Sidebar collapse or focus mode: no sample, even when this is on. None of those states redraw. Seconds without a sample are empty slots, not a copy or a bridge of the previous value. On: hidden and unfocused keep sampling about once a second, still without redrawing. The speed view freezes ICMP history for the same host; a different host or a disconnect clears it. Previously ICMP pinged about once a second whenever a target was set, including while hidden. This switch does not stop SSH keepalive, file transfer, session logs, or remote resource monitoring."
+                        : "默认关闭。本机速度和 ICMP 用同一套策略。最小化或隐藏时不采集；失焦大约每 5 秒采集一次；收起侧栏或专注模式即使打开也不采集。这些状态都不重绘。没有样本的秒是空槽，不会抄上一次的值，也不会把前后连成没有缺口的曲线。打开后，隐藏和失焦仍大约每秒采集，仍然不重绘。速度视图冻结同一主机的 ICMP 历史；换主机或断开会清掉。以前只要有目标，ICMP 大约每秒都 ping，隐藏时也一样。这个开关不会停止 SSH 保活、文件传输、会话日志或远端资源监控。";
+                    Switch {
+                        on: root.background-monitor;
+                        toggled(v) => { root.background-monitor = v; root.set-background-monitor(v); }
+                    }
+                }
                 SectionHeader { text: root.lang-en ? "INPUT" : "输入"; height: 24px; }
                 SettingRow {
                     label: root.lang-en ? "Confirm multiline paste" : "确认多行粘贴";
@@ -756,14 +779,14 @@ export component InterfacePanel inherits Rectangle {
             }
 
             // --- Output highlighting page -----------------------------
-            if root.ifd-page == "output" : VerticalLayout {
+            if root.ifd-page == "appearance" : VerticalLayout {
                 padding-left: 20px;
                 padding-right: 20px;
                 padding-top: 14px;
                 spacing: 0;
                 alignment: start;
 
-                SectionHeader { text: root.lang-en ? "OUTPUT HIGHLIGHTING" : "输出高亮"; height: 24px; }
+                SectionHeader { text: root.lang-en ? "HIGHLIGHT" : "高亮"; height: 24px; }
                 SettingRow {
                     label: root.lang-en ? "Highlight plain terminal output" : "高亮纯文本终端输出";
                     desc: root.lang-en
@@ -996,7 +1019,7 @@ export component InterfacePanel inherits Rectangle {
             }
 
             // --- Wallpaper page ----------------------------------------
-            if root.ifd-page == "wallpaper" : VerticalLayout {
+            if root.ifd-page == "appearance" : VerticalLayout {
                 padding-left: 20px;
                 padding-right: 20px;
                 padding-top: 14px;
@@ -1169,7 +1192,7 @@ export component InterfacePanel inherits Rectangle {
             }
 
             // --- Renderer page (#280) ---------------------------------
-            if root.ifd-page == "renderer" : VerticalLayout {
+            if root.ifd-page == "appearance" : VerticalLayout {
                 padding-left: 20px;
                 padding-right: 20px;
                 padding-top: 14px;
@@ -1402,19 +1425,6 @@ export component InterfacePanel inherits Rectangle {
                         toggled(v) => { root.local-latency-mode = v; root.set-local-latency-mode(v); }
                     }
                 }
-                // Integration point: Settings → Sidebars, directly under the latency
-                // row. The 通用 category can move this row later; the property is
-                // `background-monitor` on AppWindow and InterfacePanel.
-                SettingRow {
-                    label: root.lang-en ? "Keep monitoring in the background" : "后台持续监控";
-                    desc: root.lang-en
-                        ? "Off by default. Local speed and ICMP follow one policy. Minimized or hidden: no sample. Unfocused: about every 5 seconds. Sidebar collapse or focus mode: no sample, even when this is on. None of those states redraw. Seconds without a sample are empty slots, not a copy or a bridge of the previous value. On: hidden and unfocused keep sampling about once a second, still without redrawing. The speed view freezes ICMP history for the same host; a different host or a disconnect clears it. Previously ICMP pinged about once a second whenever a target was set, including while hidden. This switch does not stop SSH keepalive, file transfer, session logs, or remote resource monitoring."
-                        : "默认关闭。本机速度和 ICMP 用同一套策略。最小化或隐藏时不采集；失焦大约每 5 秒采集一次；收起侧栏或专注模式即使打开也不采集。这些状态都不重绘。没有样本的秒是空槽，不会抄上一次的值，也不会把前后连成没有缺口的曲线。打开后，隐藏和失焦仍大约每秒采集，仍然不重绘。速度视图冻结同一主机的 ICMP 历史；换主机或断开会清掉。以前只要有目标，ICMP 大约每秒都 ping，隐藏时也一样。这个开关不会停止 SSH 保活、文件传输、会话日志或远端资源监控。";
-                    Switch {
-                        on: root.background-monitor;
-                        toggled(v) => { root.background-monitor = v; root.set-background-monitor(v); }
-                    }
-                }
                 SettingRow {
                     label: root.lang-en ? "Upload color" : "上行颜色";
                     desc: root.lang-en
@@ -1553,7 +1563,7 @@ export component InterfacePanel inherits Rectangle {
             }
 
             // --- Session sync page -------------------------------------
-            if root.ifd-page == "sync" : VerticalLayout {
+            if root.ifd-page == "session" : VerticalLayout {
                 padding-left: 20px;
                 padding-right: 20px;
                 padding-top: 14px;
@@ -1581,7 +1591,7 @@ export component InterfacePanel inherits Rectangle {
             }
 
             // --- WebDAV page (#185) ------------------------------------
-            if root.ifd-page == "webdav" : VerticalLayout {
+            if root.ifd-page == "general" : VerticalLayout {
                 padding-left: 20px;
                 padding-right: 20px;
                 padding-top: 14px;
@@ -1669,7 +1679,7 @@ export component InterfacePanel inherits Rectangle {
             }
 
             // --- Download page -----------------------------------------
-            if root.ifd-page == "download" : VerticalLayout {
+            if root.ifd-page == "general" : VerticalLayout {
                 padding-left: 20px;
                 padding-right: 20px;
                 padding-top: 14px;
@@ -1690,7 +1700,7 @@ export component InterfacePanel inherits Rectangle {
             }
 
             // --- Session log page (#265) -------------------------------
-            if root.ifd-page == "session-log" : VerticalLayout {
+            if root.ifd-page == "session" : VerticalLayout {
                 padding-left: 20px;
                 padding-right: 20px;
                 padding-top: 14px;
@@ -1738,7 +1748,7 @@ export component InterfacePanel inherits Rectangle {
             }
 
             // --- Update check page (#184) ------------------------------
-            if root.ifd-page == "update" : VerticalLayout {
+            if root.ifd-page == "general" : VerticalLayout {
                 padding-left: 20px;
                 padding-right: 20px;
                 padding-top: 14px;

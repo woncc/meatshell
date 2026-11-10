@@ -589,6 +589,8 @@ export component AppWindow inherits Window {
     // Two-way binding to Theme.dark — Rust reads/writes this property and
     // Slint propagates it to every widget that references Theme colours.
     in-out property <bool> dark-mode <=> Theme.dark;
+    // Empty, or robbyrussell / sunaku / sunrise. Design reference only (#51).
+    in-out property <string> color-reference <=> Theme.reference-id;
     // Keep Slint's std-widgets (LineEdit / Button / ComboBox in the dialogs) in
     // step with our theme — otherwise in light mode they keep the platform/dark
     // palette and their text/borders blend into the light dialog background.
@@ -827,6 +829,7 @@ export component AppWindow inherits Window {
     callback delete-group(string /* name */);
     callback submit-group(string /* orig */, string /* name */) -> string;
     callback toggle-theme();               // flip dark ↔ light
+    callback set-color-reference(string);
     // Session sync / broadcast input (#78 pt.4): mirror keystrokes to every
     // online session. Default off (it types into ALL sessions at once).
     in-out property <bool> sync-input: false;
@@ -2701,11 +2704,18 @@ export component AppWindow inherits Window {
         x: root.width - 34px - root.toolbar-x-off; y: root.toolbar-y;
         icon: "\u{E8B8}";
         tooltip: root.lang-en ? "Settings" : "设置";
+        active: root.interface-open;
+        clicked => { root.interface-open = true; root.settings-open = false; root.download-open = false; }
+    }
+    IconBtn {
+        x: root.width - 64px - root.toolbar-x-off; y: root.toolbar-y;
+        icon: "\u{E869}";
+        tooltip: root.lang-en ? "Tools" : "工具";
         active: root.settings-open;
         clicked => { root.settings-open = !root.settings-open; root.download-open = false; root.ssh-import-hint = ""; }
     }
     IconBtn {
-        x: root.width - 64px - root.toolbar-x-off; y: root.toolbar-y;
+        x: root.width - 94px - root.toolbar-x-off; y: root.toolbar-y;
         icon: "\u{E8D5}";   // Material "swap_vert" — symmetrical up+down arrows, clearer "transfer" semantic
         tooltip: @tr("Transfers manager");
         active: root.download-open;
@@ -2720,14 +2730,14 @@ export component AppWindow inherits Window {
     // own background via `breathe: root.has-active-transfers` above, so the
     // icon stays clean and no stray dot shows over the toolbar (#breathing-light).
     IconBtn {
-        x: root.width - 94px - root.toolbar-x-off; y: root.toolbar-y;
+        x: root.width - 124px - root.toolbar-x-off; y: root.toolbar-y;
         icon: Theme.dark ? "\u{E518}" : "\u{E51C}";
         icon-color: Theme.dark ? #f5c542 : #5856d6;
         tooltip: root.lang-en ? "Toggle theme" : "切换主题";
         clicked => { root.toggle-theme(); }
     }
     IconBtn {
-        x: root.width - 124px - root.toolbar-x-off; y: root.toolbar-y;
+        x: root.width - 154px - root.toolbar-x-off; y: root.toolbar-y;
         icon: "\u{E627}";
         icon-color: root.sync-input ? Theme.accent : Theme.text-secondary;
         active: root.sync-input;
@@ -2737,7 +2747,7 @@ export component AppWindow inherits Window {
         clicked => { root.sync-input = !root.sync-input; root.set-sync-input(root.sync-input); }
     }
     IconBtn {
-        x: root.width - 154px - root.toolbar-x-off; y: root.toolbar-y;
+        x: root.width - 184px - root.toolbar-x-off; y: root.toolbar-y;
         icon: "\u{E86F}";   // Material "code" — command bar
         active: !root.cmd-bar-hidden;
         tooltip: root.lang-en
@@ -2746,7 +2756,7 @@ export component AppWindow inherits Window {
         clicked => { root.cmd-bar-hidden = !root.cmd-bar-hidden; root.set-cmd-bar-hidden(root.cmd-bar-hidden); }
     }
     IconBtn {
-        x: root.width - 214px - root.toolbar-x-off; y: root.toolbar-y;
+        x: root.width - 244px - root.toolbar-x-off; y: root.toolbar-y;
         icon: "\u{F10D}";   // Material "push_pin" — always on top (#450)
         icon-color: root.pinned ? Theme.accent : Theme.text-secondary;
         active: root.pinned;
@@ -2760,7 +2770,7 @@ export component AppWindow inherits Window {
     focus-btn := Rectangle {
         width: focus-label.preferred-width + 16px;
         height: 26px;
-        x: root.width - 214px - root.toolbar-x-off - 6px - self.width;
+        x: root.width - 244px - root.toolbar-x-off - 6px - self.width;
         y: root.toolbar-y;
         border-radius: Theme.radius-sm;
         background: focus-ta.has-hover ? Theme.bg-hover : transparent;
@@ -2801,7 +2811,7 @@ export component AppWindow inherits Window {
         }
     }
     IconBtn {
-        x: root.width - 184px - root.toolbar-x-off; y: root.toolbar-y;
+        x: root.width - 214px - root.toolbar-x-off; y: root.toolbar-y;
         // Open eye while the address is visible; closed eye while it is masked.
         icon: root.hide-ssh-identity ? "\u{E8F5}" : "\u{E8F4}";
         active: root.hide-ssh-identity;
@@ -3586,28 +3596,6 @@ export component AppWindow inherits Window {
         menu-vl := VerticalLayout {
             padding: 4px;
             spacing: 1px;
-            // Interface (font) settings.
-            Rectangle {
-                height: 28px;
-                border-radius: Theme.radius-sm;
-                background: iface-ta.has-hover ? Theme.bg-hover : transparent;
-                iface-ta := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => {
-                        root.settings-open = false;
-                        root.interface-open = true;
-                    }
-                }
-                HorizontalLayout {
-                    padding-left: 8px; spacing: 8px;
-                    Text { text: "\u{E429}"; font-family: "Material Icons"; // tune
-                           color: Theme.text-secondary; font-size: Theme.fs-sm;
-                           vertical-alignment: center; }
-                    Text { text: root.lang-en ? "Interface" : "界面";
-                           color: Theme.text-primary; font-size: Theme.fs-md;
-                           vertical-alignment: center; horizontal-stretch: 1; }
-                }
-            }
             // Export all connections to a portable file (#46).
             Rectangle {
                 height: 28px;
@@ -3703,70 +3691,6 @@ export component AppWindow inherits Window {
                             overflow: elide;
                         }
                     }
-                }
-            }
-            // Language toggle: shows the language you'll switch TO.
-            Rectangle {
-                height: 28px;
-                border-radius: Theme.radius-sm;
-                background: lang-ta.has-hover ? Theme.bg-hover : transparent;
-                lang-ta := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => {
-                        root.settings-open = false;
-                        root.set-language(root.lang-en ? "zh" : "en");
-                    }
-                }
-                HorizontalLayout {
-                    padding-left: 8px; spacing: 8px;
-                    Text { text: "\u{E894}"; font-family: "Material Icons"; // language/translate
-                           color: Theme.text-secondary; font-size: Theme.fs-sm;
-                           vertical-alignment: center; }
-                    Text { text: root.lang-en ? "切换到中文" : "Switch to English";
-                           color: Theme.text-primary; font-size: Theme.fs-md;
-                           vertical-alignment: center; horizontal-stretch: 1; }
-                }
-            }
-            // Keyboard shortcuts reference (#103).
-            Rectangle {
-                height: 28px;
-                border-radius: Theme.radius-sm;
-                background: keys-ta.has-hover ? Theme.bg-hover : transparent;
-                keys-ta := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => {
-                        root.settings-open = false;
-                        root.shortcuts-open = true;
-                    }
-                }
-                HorizontalLayout {
-                    padding-left: 8px; spacing: 8px;
-                    Text { text: "\u{E312}"; font-family: "Material Icons"; // keyboard
-                           color: Theme.text-secondary; font-size: Theme.fs-sm;
-                           vertical-alignment: center; }
-                    Text { text: root.lang-en ? "Shortcuts" : "快捷键";
-                           color: Theme.text-primary; font-size: Theme.fs-md;
-                           vertical-alignment: center; horizontal-stretch: 1; }
-                }
-            }
-            Rectangle {
-                height: 28px;
-                border-radius: Theme.radius-sm;
-                background: about-ta.has-hover ? Theme.bg-hover : transparent;
-                about-ta := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => {
-                        root.settings-open = false;
-                        root.about-open = true;
-                    }
-                }
-                HorizontalLayout {
-                    padding-left: 8px; spacing: 8px;
-                    Text { text: "\u{E88E}"; font-family: "Material Icons"; // Info
-                           color: Theme.text-secondary; font-size: Theme.fs-sm;
-                           vertical-alignment: center; }
-                    Text { text: @tr("About"); color: Theme.text-primary; font-size: Theme.fs-md;
-                           vertical-alignment: center; horizontal-stretch: 1; }
                 }
             }
         }
@@ -5608,6 +5532,11 @@ export component AppWindow inherits Window {
                     set-collapse-sidebar-default(v) => { root.set-collapse-sidebar-default(v); }
                     set-local-latency-mode(v) => { root.set-local-latency-mode(v); }
                     set-background-monitor(v) => { root.set-background-monitor(v); }
+                    set-language(v) => { root.set-language(v); }
+                    open-shortcuts => { root.shortcuts-open = true; }
+                    toggle-theme => { root.toggle-theme(); }
+                    set-color-reference(id) => { root.set-color-reference(id); }
+                    open-about => { root.about-open = true; }
                     set-show-local-metric(v) => { root.set-show-local-metric(v); }
                     set-net-up-color(v) => { root.set-net-up-color(v) }
                     set-net-down-color(v) => { root.set-net-down-color(v) }

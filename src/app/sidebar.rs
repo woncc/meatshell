@@ -635,10 +635,45 @@ pub(super) fn wire_sidebar_refresh_and_theme(
                 }
             }
             let pref = if next_dark { "dark" } else { "light" };
+            w.set_color_reference("".into());
             {
                 let mut s = store.borrow_mut();
                 s.set_theme_pref(pref.to_string());
                 let _ = s.save();
+            }
+            registry.broadcast_config_changed();
+        });
+    }
+    {
+        let weak = window.as_weak();
+        let store = store.clone();
+        let bufs_theme = bufs.clone();
+        let registry = registry.clone();
+        window.on_set_color_reference(move |id: slint::SharedString| {
+            let Some(w) = weak.upgrade() else { return };
+            let id = id.to_string();
+            let known = matches!(id.as_str(), "" | "robbyrussell" | "sunaku" | "sunrise");
+            if !known {
+                return;
+            }
+            w.set_color_reference(id.clone().into());
+            let dark = match id.as_str() {
+                "sunrise" => false,
+                "robbyrussell" | "sunaku" => true,
+                _ => w.get_dark_mode(),
+            };
+            if matches!(id.as_str(), "sunrise" | "robbyrussell" | "sunaku") {
+                apply_dark_mode(&w, &bufs_theme, dark);
+            }
+            let pref = if id.is_empty() {
+                if w.get_dark_mode() { "dark" } else { "light" }.to_string()
+            } else {
+                format!("ref:{id}")
+            };
+            {
+                let mut settings = store.borrow_mut();
+                settings.set_theme_pref(pref);
+                let _ = settings.save();
             }
             registry.broadcast_config_changed();
         });
