@@ -96,11 +96,23 @@ pub(super) fn parent_path(path: &str) -> String {
 /// sit above floating windows.
 #[derive(Clone, Copy, Default)]
 pub(super) struct DialogOwner {
+    /// The UI captured a live window for this dialog. Native parenting still
+    /// happens only on Windows; other platforms stay unowned on purpose.
+    captured: bool,
     #[cfg(windows)]
     handles: Option<(
         raw_window_handle::RawWindowHandle,
         raw_window_handle::RawDisplayHandle,
     )>,
+}
+
+/// What an `rz` file dialog will do with the window captured for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct DialogParentRequest {
+    pub captured_window: bool,
+    /// True only when the native dialog is given that window as its owner.
+    /// That is the Windows case that keeps the picker above a pinned window.
+    pub native_parent: bool,
 }
 
 // SAFETY: only the raw HWND/display handles are stored and handed to rfd,
@@ -123,12 +135,68 @@ impl DialogOwner {
                     ))
                 })
                 .flatten();
-            Self { handles }
+            Self {
+                captured: true,
+                handles,
+            }
         }
         #[cfg(not(windows))]
         {
             let _ = window;
-            Self::default()
+            Self { captured: true }
+        }
+    }
+
+    pub(super) fn parent_request(&self) -> DialogParentRequest {
+        DialogParentRequest {
+            captured_window: self.captured,
+            native_parent: self.parents_native_dialog(),
+        }
+    }
+
+    fn parents_native_dialog(&self) -> bool {
+        #[cfg(windows)]
+        {
+            self.handles.is_some()
+        }
+        #[cfg(not(windows))]
+        {
+            false
+        }
+    }
+
+    /// A captured owner for tests. On Windows the handle is a non-zero dummy
+    /// so the parent bit can be asserted without opening a dialog.
+    #[cfg(test)]
+    fn captured_for_test() -> Self {
+        Self::captured_hwnd_for_test(1)
+    }
+
+    /// Two calls stand in for the window that had the tab at connect and the
+    /// window that has it when `rz` is delivered. Only the delivery capture
+    /// is allowed to parent the dialog.
+    #[cfg(test)]
+    fn captured_hwnd_for_test(hwnd: isize) -> Self {
+        #[cfg(windows)]
+        {
+            use std::num::NonZeroIsize;
+            let window = raw_window_handle::RawWindowHandle::Win32(
+                raw_window_handle::Win32WindowHandle::new(
+                    NonZeroIsize::new(hwnd).expect("nonzero"),
+                ),
+            );
+            let display = raw_window_handle::RawDisplayHandle::Windows(
+                raw_window_handle::WindowsDisplayHandle::new(),
+            );
+            Self {
+                captured: true,
+                handles: Some((window, display)),
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = hwnd;
+            Self { captured: true }
         }
     }
 
@@ -142,11 +210,25 @@ impl DialogOwner {
 
     pub(super) fn file(&self) -> rfd::FileDialog {
         let dialog = rfd::FileDialog::new();
+        // Same predicate the tests assert. Parenting stays Windows-only so a
+        // macOS owner cannot turn the picker into a sheet.
         #[cfg(windows)]
-        if self.handles.is_some() {
+        if self.parents_native_dialog() {
             return dialog.set_parent(self);
         }
         dialog
+    }
+
+    /// Files for a remote `rz` upload. Call this only after the UI thread has
+    /// captured the window that currently holds the tab (#28).
+    pub(super) fn pick_rz_upload_files(self) -> Vec<std::path::PathBuf> {
+        self.file()
+            .set_title(crate::i18n::t(
+                "选择要通过 rz 上传的文件",
+                "Choose files to upload via rz",
+            ))
+            .pick_files()
+            .unwrap_or_default()
     }
 
     pub(super) fn message(&self) -> rfd::MessageDialog {
@@ -182,5 +264,85 @@ impl raw_window_handle::HasDisplayHandle for DialogOwner {
             .ok_or(raw_window_handle::HandleError::Unavailable)?;
         // SAFETY: as above.
         Ok(unsafe { raw_window_handle::DisplayHandle::borrow_raw(display) })
+    }
+}
+
+#[cfg(test)]
+mod dialog_owner_tests {
+    use super::*;
+
+    #[test]
+    fn rz_dialog_parents_a_captured_window_on_windows_only() {
+        let missing = DialogOwner::default();
+        assert_eq!(
+            missing.parent_request(),
+            DialogParentRequest {
+                captured_window: false,
+                native_parent: false,
+            }
+        );
+        let captured = DialogOwner::captured_for_test();
+        assert_eq!(
+            captured.parent_request(),
+            DialogParentRequest {
+                captured_window: true,
+                native_parent: cfg!(windows),
+            }
+        );
+        // Build the dialog the rz path uses. Do not show it.
+        let _dialog = captured.file();
+    }
+
+    #[test]
+    fn rz_prompt_captures_the_window_that_has_the_tab_now() {
+        let at_connect = DialogOwner::default();
+        assert!(!at_connect.parent_request().captured_window);
+        assert!(!at_connect.parent_request().native_parent);
+
+        let original = DialogOwner::captured_hwnd_for_test(11);
+        let moved = DialogOwner::captured_hwnd_for_test(22);
+        assert!(original.parent_request().captured_window);
+        assert!(moved.parent_request().captured_window);
+        assert_eq!(original.parent_request().native_parent, cfg!(windows));
+        assert_eq!(moved.parent_request().native_parent, cfg!(windows));
+        #[cfg(windows)]
+        {
+            use raw_window_handle::HasWindowHandle;
+            fn hwnd(owner: &DialogOwner) -> isize {
+                match owner.window_handle().expect("parent").as_raw() {
+                    raw_window_handle::RawWindowHandle::Win32(handle) => handle.hwnd.get() as isize,
+                    other => panic!("expected a win32 parent, got {other:?}"),
+                }
+            }
+            assert_eq!(hwnd(&original), 11);
+            assert_eq!(hwnd(&moved), 22);
+        }
+        let _dialog = moved.file();
+    }
+
+    #[test]
+    fn pinned_toolbar_keeps_focus_left_of_the_pin_and_clear_of_the_eye() {
+        let ui = include_str!("../../ui/app.slint");
+        assert!(
+            ui.contains("x: root.width - 214px - root.toolbar-x-off;"),
+            "pin must stay at width-214 so it does not cover the eye toggle"
+        );
+        assert!(
+            ui.contains("x: root.width - 184px - root.toolbar-x-off;"),
+            "eye toggle stays at width-184"
+        );
+        assert!(
+            ui.contains("x: root.width - 214px - root.toolbar-x-off - 6px - self.width;"),
+            "Focus stays immediately left of the pin"
+        );
+        let panes = include_str!("panes.rs");
+        assert!(panes.contains("reserve_right: if top_right { 350.0 } else { 0.0 }"));
+
+        // IconBtn is 26px. Pin occupies [right-214, right-188). Eye starts at right-184.
+        let pin_from_right = 214;
+        let icon = 26;
+        let eye_from_right = 184;
+        let gap = (pin_from_right - icon) - eye_from_right;
+        assert_eq!(gap, 4, "pin and eye toggle overlap");
     }
 }

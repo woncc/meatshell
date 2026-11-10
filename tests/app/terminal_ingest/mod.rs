@@ -67,6 +67,53 @@ fn routine_shell_metadata_does_not_disable_tail_pacing() {
 }
 
 #[test]
+fn rz_prompt_is_immediate_and_a_closed_window_cancels_it() {
+    let (tx, mut rx) = tokio::sync::oneshot::channel::<Vec<std::path::PathBuf>>();
+    let prompt = SessionEvent::RzUploadPrompt {
+        responder: crate::ssh::RzFileResponder::new(tx),
+    };
+    assert!(
+        event_requires_immediate_ui(&prompt),
+        "an rz prompt must not wait behind terminal pacing"
+    );
+
+    let mut batch = vec![
+        prompt,
+        SessionEvent::Output("still buffered".into()),
+        SessionEvent::Closed("window closed".into()),
+    ];
+    let closed = take_closed_event(&mut batch);
+    assert!(matches!(closed, Some(SessionEvent::Closed(reason)) if reason == "window closed"));
+    assert!(
+        batch.is_empty(),
+        "the prompt must not survive the closed window"
+    );
+    match rx.try_recv() {
+        Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {}
+        other => panic!("dropping the prompt should cancel the ssh wait, got {other:?}"),
+    }
+}
+
+#[test]
+fn rz_prompt_captures_the_delivery_window_before_the_worker() {
+    let src = include_str!("../../../src/app/session_event.rs");
+    let marker = "SessionEvent::RzUploadPrompt { responder } =>";
+    let start = src.find(marker).expect("rz prompt arm");
+    let arm = &src[start..];
+    let arm = &arm[..arm.find("SessionEvent::HostKeyPrompt").expect("next arm")];
+    let capture = arm
+        .find("DialogOwner::of(")
+        .expect("capture current window");
+    let worker = arm.find("std::thread::spawn").expect("dialog worker");
+    assert!(
+        capture < worker,
+        "the window handle has to be read on the UI thread before the worker runs"
+    );
+    assert!(arm.contains("pick_rz_upload_files"));
+    assert!(!arm.contains("FileDialog::new"));
+}
+
+#[test]
 fn closed_event_discards_stale_output_backlog() {
     let mut events = vec![
         SessionEvent::Output("old-1".into()),
