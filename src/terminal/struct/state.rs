@@ -57,6 +57,14 @@ pub(crate) struct TermBuffer {
     /// the primary scrollback. Set while entering, showing, or leaving that
     /// screen, and consumed by the following erase-saved-lines sequence.
     pub(crate) suppress_alt_erase_saved: bool,
+    /// A primary-screen program (procps `top` without `smcup`) is redrawing
+    /// with home + erase-display. The visible grid was copied into history
+    /// once, and later frames must not be appended. A one-shot `clear`
+    /// (`CSI 2 J` while the cursor stays visible) snapshots and then resumes.
+    pub(crate) primary_fullscreen: bool,
+    /// `CSI ? 25 l` is in effect. Used to tell a repeating primary-screen
+    /// redraw from a single erase-display.
+    pub(crate) cursor_hidden: bool,
     /// Plain-text transcript of this tab's output, when session logging is
     /// on for it (#265). Dropping the buffer (tab close) closes the file.
     pub(crate) session_log: Option<crate::terminal::SessionLogger>,
