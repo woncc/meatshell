@@ -699,9 +699,13 @@ mod search_tests {
 
         draft.user = "alice".into();
         draft.name = "kept".into();
-        let custom = session_from_draft(&draft, None, Vec::new(), Vec::new());
+        let mut existing = Session::new_empty();
+        existing.user = "alice".into();
+        existing.password = Secret::new("stored-secret");
+        let custom = session_from_draft(&draft, Some(&existing), Vec::new(), Vec::new());
         assert_eq!(custom.user, "alice");
         assert_eq!(custom.name, "kept");
+        assert_eq!(custom.password.as_str(), "stored-secret");
 
         let listed = build_session_rows(&[custom.clone()], &[], None, &[], "", true);
         assert_eq!(listed[0].user.as_str(), "****");
