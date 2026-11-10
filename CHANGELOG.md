@@ -3,6 +3,41 @@
 All notable changes are documented here. 本文件记录所有重要变更。
 中英对照（中文在前，English after）.
 
+v0.7.13-slim.1
+
+相对 v0.7.12-slim.1 的新增。这是预发布，不替换 GitHub Latest，也不替换应用内的最新版检查。v0.7.12-slim.1 已经发布的 7 个上游补丁不在这里再列为新功能。本预发布不恢复已删除的 MCP、CLI 或 automation。
+Changes since v0.7.12-slim.1. This is a prerelease and does not replace GitHub Latest or the in-app update check. The seven upstream patches already shipped in v0.7.12-slim.1 are not listed again as new features. This prerelease does not restore the removed MCP, CLI, or automation code.
+
+修复 / Fixes
+
+- 远程 `rz` 的文件选择框改由界面打开，并挂到当前正显示该标签的窗口。Windows 上因此能留在置顶主窗口前面；取消或空选择仍发送原来的 ZMODEM 取消。标签换到别的窗口后再执行 `rz`，用的是当时的窗口。macOS 和其他平台仍不设父窗口，避免变成 sheet。（#28，PR #30）
+  Remote `rz` now asks the UI for files and parents the picker to the window that currently holds the tab. On Windows it stays above a pinned window. Cancel and an empty selection still send the existing ZMODEM cancel. Other platforms stay unowned so macOS does not turn the picker into a sheet. (#28, PR #30)
+
+其他 / Other
+
+- 发布：macOS 作业从 2026-11-02 退役的 `macos-14` 改到 `macos-15`。仍是 Apple Silicon 本机构建加 Intel 交叉编译这两项，矩阵没有扩大。更换 runner 不等于 macOS 安装包已经验证可用，以本版本的实际构建结果为准。带 `-` 的标签在本分支的工作流里仍标为预发布。
+  Release: macOS jobs move from the `macos-14` runner retired on 2026-11-02 to `macos-15`. Still one Apple Silicon build and one Intel cross-compile; the matrix is not expanded. Changing the runner does not by itself prove the macOS packages work. Tags containing `-` stay prereleases in this branch's workflow.
+
+此前已发布，不是本预发布新增 / Already released, not new here
+
+- v0.7.12-slim.1 已包含 #28 的 7 个上游提交：串口下拉 `8fc6870`、macOS 不建托盘 `fd83068`、macOS Touch Bar `69500e5`、命令历史定位最新 `68d48f2`、死代码清理 `4302e14`、vt100 0.16.2 `80db320`、窗口置顶和 Windows 对话框父窗口 `0527db7`。更完整的对照在尚未合入的文档 PR #32，本预发布不重复那份审计。
+  v0.7.12-slim.1 already contains the seven #28 upstream commits listed above. The fuller comparison is in unmerged docs PR #32; this prerelease does not repeat that audit.
+
+已确认因缺陷未采用 / Not taken because of known defects
+
+- `806c120`、`1605cf6`、`2ea7d10`、`d31e619`：断开或重连时保留终端历史。后台标签或侧栏隐藏时断开仍会清历史；在 vim 等备用屏幕里重连后解析器不重置；查看历史时光标行越界；并退回了断开后释放内存的修复。
+  Those four commits try to keep terminal history across disconnect. They still clear history for a background tab or a hidden sidebar, do not reset the parser after reconnecting from an alternate screen, can move the history cursor out of range, and they revert the fix that frees memory on disconnect.
+
+有意不采用，不是缺陷 / Intentionally not taken, not defects
+
+- `f7752b3`：上游自己的版本号和 changelog。本仓使用自己的版本和本文件。
+  `f7752b3` is upstream's own version and changelog. This fork keeps its own.
+- 挑选上述补丁时没有整份合并上游的合并提交；那些提交没有另外的产品变化。其余尚未同步的上游提交不在本预发布定性。
+  The upstream merge commits around those patches were not copied wholesale; they add no separate product change. Other upstream commits that are not in this fork are not classified here.
+
+Windows 实机还没有点选验收 `rz` 文件框。这只说明实机点击未做，修复已经合入 `slim`。
+The `rz` picker has not been click-tested on a Windows machine. That is unverified on-device behavior, not an unmerged fix.
+
 v0.7.10
 
 安全 / Security
