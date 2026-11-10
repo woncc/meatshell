@@ -22,23 +22,12 @@ const H: u32 = 1000;
 const MAX_EDGE: u32 = 2560;
 
 
-/// Resolve a stored wallpaper id into an image + palette.
-///
-/// Stored ids that are no longer shipped fall back to 简约·浅. A custom
-/// filesystem path is unchanged, and this never deletes that file.
-pub fn canonical_wallpaper_id(id: &str) -> &str {
-    match id {
-        "" | "builtin:light" | "builtin:dark" => id,
-        other if other.starts_with("builtin:") => "builtin:light",
-        other => other,
-    }
-}
-
 /// ids: `""` → none; `"builtin:light"` (简约·浅); `"builtin:dark"` (简约·暗);
 /// anything else that is not a removed built-in is a user image path.
 /// Returns `None` for "no wallpaper" or when a custom file can't be decoded.
+/// Id normalization lives in config so headless builds can use it.
 pub fn load(id: &str) -> Option<Wallpaper> {
-    let id = canonical_wallpaper_id(id);
+    let id = crate::config::canonical_wallpaper_id(id);
     if id.is_empty() {
         return None;
     }
