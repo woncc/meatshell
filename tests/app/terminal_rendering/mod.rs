@@ -40,6 +40,8 @@ fn make_buf(
         csi_pending: Vec::new(),
         raw: std::collections::VecDeque::new(),
         suppress_alt_erase_saved: false,
+        primary_fullscreen: false,
+        cursor_hidden: false,
         session_log: None,
         session_log_spec: None,
     }
@@ -260,4 +262,129 @@ fn leaving_alternate_screen_after_shrinking_keeps_cursor_in_bounds() {
             "cursor {row},{col} outside {rows}x{cols}"
         );
     }
+}
+
+fn numbered_lines(count: usize) -> Vec<u8> {
+    (1..=count)
+        .map(|n| format!("LINE-{n:02} prior-command\r\n"))
+        .collect::<String>()
+        .into_bytes()
+}
+
+fn history_has(buffer: &TermBuffer, needle: &str) -> bool {
+    history_text(buffer)
+        .iter()
+        .any(|line| line.contains(needle))
+}
+
+fn live_has(buffer: &TermBuffer) -> String {
+    buffer.parser.screen().contents()
+}
+
+/// procps `top` on TERM=xterm-256color in this environment does not emit
+/// smcup. It hides the cursor and erases the primary display (`CSI H` +
+/// `CSI 2 J`), then redraws. Ctrl+C shows the cursor again.
+const TOP_ENTER: &[u8] = b"\x1b[?1h\x1b=\x1b[?25l\x1b[H\x1b[2JTOP-FRAME-1\r\nload\r\n";
+const TOP_REDRAW: &[u8] = b"\x1b[H\x1b[2JTOP-FRAME-2\r\nload\r\n";
+const TOP_CTRL_C: &[u8] = b"\x1b[?1l\x1b>\x1b[8;1H\r\n\x1b[?12l\x1b[?25h\x1b[K";
+
+#[test]
+fn primary_top_keeps_prior_output_and_drops_later_frames() {
+    let mut buffer = make_buf(8, 80, &[], &[], 0);
+    let _ = buffer.ingest(&numbered_lines(20));
+    let _ = buffer.ingest(TOP_ENTER);
+    let _ = buffer.ingest(TOP_REDRAW);
+    let _ = buffer.ingest(TOP_CTRL_C);
+    for n in 1..=20 {
+        assert!(
+            history_has(&buffer, &format!("LINE-{n:02}")),
+            "missing LINE-{n:02} after primary top: {:?}",
+            history_text(&buffer)
+        );
+    }
+    let joined = history_text(&buffer).join("\n");
+    assert!(
+        !joined.contains("TOP-FRAME"),
+        "top frame entered history: {joined}"
+    );
+    assert!(
+        !live_has(&buffer).contains("TOP-FRAME-2") || !joined.contains("TOP-FRAME-2"),
+        "redraw must not be stored as scrollback"
+    );
+}
+
+#[test]
+fn alt_screen_top_restores_visible_primary_lines() {
+    let mut buffer = make_buf(8, 80, &[], &[], 0);
+    let _ = buffer.ingest(&numbered_lines(20));
+    let _ = buffer.ingest(b"\x1b[?1049h\x1b[H\x1b[2J\x1b[3JTOP-FRAME\r\n");
+    assert!(buffer.parser.screen().alternate_screen());
+    assert!(
+        !history_has(&buffer, "TOP-FRAME"),
+        "alt frame must not enter history"
+    );
+    let _ = buffer.ingest(b"\x1b[?1049l\x1b[3J");
+    assert!(!buffer.parser.screen().alternate_screen());
+    assert!(history_has(&buffer, "LINE-01"));
+    assert!(
+        live_has(&buffer).contains("LINE-20") || history_has(&buffer, "LINE-20"),
+        "visible primary lines lost after rmcup: history={:?} live={}",
+        history_text(&buffer),
+        live_has(&buffer)
+    );
+    assert!(!history_has(&buffer, "TOP-FRAME"));
+}
+
+#[test]
+fn reflow_after_primary_top_keeps_prior_lines() {
+    let mut buffer = make_buf(8, 80, &[], &[], 0);
+    let _ = buffer.ingest(&numbered_lines(20));
+    let _ = buffer.ingest(TOP_ENTER);
+    buffer.reflow(10, 40);
+    assert!(history_has(&buffer, "LINE-01"));
+    assert!(history_has(&buffer, "LINE-20"));
+    assert!(!history_has(&buffer, "TOP-FRAME"));
+}
+
+#[test]
+fn primary_clear_snapshots_once_then_resumes_scrollback() {
+    let mut buffer = make_buf(8, 80, &[], &[], 0);
+    let _ = buffer.ingest(&numbered_lines(20));
+    let _ = buffer.ingest(b"\x1b[H\x1b[2J");
+    let _ = buffer.ingest(&numbered_lines(10).join_as_after());
+    assert!(history_has(&buffer, "LINE-01"));
+    assert!(history_has(&buffer, "LINE-20"));
+    assert!(
+        history_has(&buffer, "AFTER-01"),
+        "clear left history capture stuck: {:?}",
+        history_text(&buffer)
+    );
+}
+
+trait AfterLines {
+    fn join_as_after(self) -> Vec<u8>;
+}
+
+impl AfterLines for Vec<u8> {
+    fn join_as_after(self) -> Vec<u8> {
+        String::from_utf8(self)
+            .expect("numbered lines")
+            .replace("LINE-", "AFTER-")
+            .into_bytes()
+    }
+}
+
+#[test]
+fn primary_fullscreen_snapshot_still_respects_history_cap() {
+    let mut buffer = make_buf(4, 20, &[], &[], 0);
+    for n in 0..crate::terminal::MAX_HISTORY {
+        buffer
+            .history
+            .push_back((format!("OLD-{n}"), Vec::new(), false));
+    }
+    let _ = buffer.ingest(b"KEEP-ME\r\n");
+    let _ = buffer.ingest(b"\x1b[H\x1b[2J");
+    assert_eq!(buffer.history.len(), crate::terminal::MAX_HISTORY);
+    assert!(!history_text(&buffer).iter().any(|line| line == "OLD-0"));
+    assert!(history_has(&buffer, "KEEP-ME"));
 }
