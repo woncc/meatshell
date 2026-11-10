@@ -402,11 +402,15 @@ fn apply_local_panel(
     probe_host: &str,
 ) {
     let latency_mode = win.get_local_latency_mode();
-    if latency_mode {
-        local.latency.set_target(probe_host);
-    } else {
-        local.latency.set_target("");
-    }
+    // Keep this host's samples when only the view changes. A different host,
+    // or no host, replaces them inside the probe.
+    local.latency.set_target(probe_host);
+    local
+        .latency
+        .set_probing(crate::resource::latency::icmp_probes(
+            latency_mode,
+            !probe_host.is_empty(),
+        ));
     let rtt = if latency_mode {
         local.latency.latest()
     } else {
@@ -415,7 +419,7 @@ fn apply_local_panel(
     let view = local_metric_view(latency_mode, snap.net_tx_per_sec, snap.net_rx_per_sec, rtt);
     win.set_local_metric_label(
         (if latency_mode {
-            t("延迟", "Latency")
+            t("ICMP 延迟", "ICMP latency")
         } else {
             t("本机速度", "Local speed")
         })

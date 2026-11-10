@@ -824,11 +824,11 @@ pub(super) fn open_window(
     );
 
     // --- Window activity, for idle-CPU throttling (#127) ----------------
-    // Idle terminals shouldn't burn CPU: pause the sampler when the window is
-    // minimized / occluded, throttle it when it's merely unfocused, and stop the
-    // cursor blink whenever the window isn't focused (mirrors what Tabby / Windows
-    // Terminal do). The winit event handler below updates this; the blink reads
-    // Theme.window-focused.
+    // Idle terminals shouldn't burn CPU. Unless "后台持续监控" is on, the local
+    // sampler pauses while minimized or occluded and samples about every 5s
+    // while unfocused. It still does not draw in those states. Sidebar collapse
+    // and focus mode pause it either way. The winit hook updates activity; the
+    // blink reads Theme.window-focused.
     let activity = Rc::new(std::cell::Cell::new(WinActivity::Active));
     // Once the user confirms shutdown, every subsequent native/custom close
     // request must pass through without reopening the modal. Windows Installer
@@ -851,20 +851,30 @@ pub(super) fn open_window(
         SystemSampler::recommended_interval(),
         move || {
             let Some(window) = weak.upgrade() else { return };
-            if window.get_sidebar_collapsed() || window.get_zen_mode() {
-                return;
-            }
-            // Skip the (non-trivial) sysinfo refresh + sidebar repaint when no one
-            // is looking, and back off to ~5 s when the window is in the background.
-            match tick_activity.get() {
-                WinActivity::Hidden => return,
-                WinActivity::Background => {
-                    bg_tick = bg_tick.wrapping_add(1);
-                    if bg_tick % 5 != 0 {
-                        return;
-                    }
+            // Collapse and focus mode hide the panel, so they pause sampling
+            // even when background monitoring is on. Minimize/hide and blur
+            // are separate: the switch keeps sampling those, without drawing.
+            let presence = if window.get_sidebar_collapsed() {
+                crate::resource::latency::PanelPresence::SidebarCollapsed
+            } else if window.get_zen_mode() {
+                crate::resource::latency::PanelPresence::FocusMode
+            } else {
+                match tick_activity.get() {
+                    WinActivity::Hidden => crate::resource::latency::PanelPresence::Hidden,
+                    WinActivity::Background => crate::resource::latency::PanelPresence::Unfocused,
+                    WinActivity::Active => crate::resource::latency::PanelPresence::Active,
                 }
-                WinActivity::Active => {}
+            };
+            if matches!(presence, crate::resource::latency::PanelPresence::Unfocused) {
+                bg_tick = bg_tick.wrapping_add(1);
+            }
+            let decision = crate::resource::latency::local_sample_decision(
+                presence,
+                window.get_background_monitor(),
+                bg_tick,
+            );
+            if !decision.sample {
+                return;
             }
             let snap = {
                 let mut s = tick_sampler.lock().expect("sampler poisoned");
@@ -883,7 +893,7 @@ pub(super) fn open_window(
 
             // Everything (status, CPU/mem/swap, both graphs) follows the
             // active tab; refresh_sidebar reads the stores we just updated.
-            if sidebar_updates_visible(&window) {
+            if decision.draw && sidebar_updates_visible(&window) {
                 refresh_sidebar(&window, &tick_statuses, &tick_local, &tick_net);
             }
         },

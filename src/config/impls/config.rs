@@ -267,6 +267,7 @@ fn fresh_config() -> ConfigFile {
         sidebar_dock: "right".to_string(),
         wallpaper_overlay: DEFAULT_WALLPAPER_OVERLAY,
         defaults_rev: DEFAULTS_REV,
+        local_panel_metric: "latency".to_string(),
         ..ConfigFile::default()
     }
 }
@@ -1336,9 +1337,10 @@ impl ConfigStore {
 
     /// Local resource panel under the remote graph.
     ///
-    /// Default is realtime speed: this computer's upload and download, in bytes
-    /// per second. Latency mode is opt-in and shows ICMP round-trip milliseconds
-    /// to the active SSH or Telnet host. Missing or unknown values stay on speed.
+    /// A brand-new config uses ICMP latency. An explicit `"speed"` or
+    /// `"latency"` is kept. A missing or unknown value stays on speed, which is
+    /// what configs written before the key stored. The reading is ICMP, not an
+    /// SSH protocol RTT.
     pub fn local_panel_latency(&self) -> bool {
         self.cache
             .local_panel_metric
@@ -1347,6 +1349,16 @@ impl ConfigStore {
 
     pub fn set_local_panel_latency(&mut self, latency: bool) {
         self.cache.local_panel_metric = if latency { "latency" } else { "speed" }.into();
+    }
+
+    /// “后台持续监控”. Off unless the user turned it on, including configs that
+    /// predate the key.
+    pub fn background_monitor(&self) -> bool {
+        self.cache.background_monitor
+    }
+
+    pub fn set_background_monitor(&mut self, on: bool) {
+        self.cache.background_monitor = on;
     }
 
     /// Sidebar local speed/latency block. On unless the user hid it.
@@ -2400,6 +2412,18 @@ mod tests {
         assert_eq!(store.cache.local_panel_metric, "speed");
         store.cache.local_panel_metric = "nope".into();
         assert!(!store.local_panel_latency());
+        let fresh = fresh_config();
+        assert_eq!(fresh.local_panel_metric, "latency");
+        assert!(!fresh.background_monitor);
+        let saved: ConfigFile =
+            serde_json::from_str(r#"{"local_panel_metric":"speed","background_monitor":true}"#)
+                .unwrap();
+        assert_eq!(saved.local_panel_metric, "speed");
+        assert!(saved.background_monitor);
+        let latency: ConfigFile =
+            serde_json::from_str(r#"{"local_panel_metric":"latency"}"#).unwrap();
+        assert_eq!(latency.local_panel_metric, "latency");
+        assert!(!latency.background_monitor);
     }
 
     #[test]

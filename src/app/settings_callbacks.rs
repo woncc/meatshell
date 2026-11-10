@@ -380,10 +380,11 @@ pub(super) fn wire_layout_prefs(ctx: &WinCtx) {
         window.set_collapse_sftp_default(collapse_sftp);
         let local_latency = s.local_panel_latency();
         window.set_local_latency_mode(local_latency);
+        window.set_background_monitor(s.background_monitor());
         window.set_show_local_metric(s.show_local_metric());
         window.set_local_metric_label(
             (if local_latency {
-                t("延迟", "Latency")
+                t("ICMP 延迟", "ICMP latency")
             } else {
                 t("本机速度", "Local speed")
             })
@@ -451,7 +452,7 @@ pub(super) fn wire_layout_prefs(ctx: &WinCtx) {
             if let Some(w) = weak.upgrade() {
                 w.set_local_metric_label(
                     (if latency {
-                        t("延迟", "Latency")
+                        t("ICMP 延迟", "ICMP latency")
                     } else {
                         t("本机速度", "Local speed")
                     })
@@ -459,6 +460,14 @@ pub(super) fn wire_layout_prefs(ctx: &WinCtx) {
                 );
                 w.invoke_refresh_sidebar();
             }
+        });
+    }
+    {
+        let store = store.clone();
+        window.on_set_background_monitor(move |on| {
+            let mut s = store.borrow_mut();
+            s.set_background_monitor(on);
+            let _ = s.save();
         });
     }
     {

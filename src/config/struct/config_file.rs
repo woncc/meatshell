@@ -51,8 +51,9 @@ pub(crate) fn default_sidebar_width() -> f32 {
     220.0
 }
 
-/// Default local-panel metric. Realtime speed keeps the original sidebar.
-/// `"latency"` is the opt-in ICMP round-trip display.
+/// Omitted `local_panel_metric` stays on speed. That is the old implicit
+/// default, so a config written before the key existed does not flip.
+/// A brand-new file sets `"latency"` in `fresh_config` instead.
 pub(crate) fn default_local_panel_metric() -> String {
     "speed".to_string()
 }
@@ -256,11 +257,17 @@ pub struct ConfigFile {
     /// Persisted across restarts so the drag-resized width sticks.
     #[serde(default = "default_sidebar_width")]
     pub sidebar_width: f32,
-    /// Lower resource-panel metric. `"speed"` (the default) is this computer's
-    /// realtime upload and download. `"latency"` is ICMP round-trip milliseconds
-    /// to the active SSH or Telnet host. Missing or unknown values stay on speed.
+    /// Lower resource-panel metric. `"speed"` is this computer's realtime upload
+    /// and download. `"latency"` is ICMP round-trip milliseconds to the active
+    /// SSH or Telnet host, not an SSH protocol RTT. Missing or unknown values
+    /// stay on speed. A brand-new config stores `"latency"`.
     #[serde(default = "default_local_panel_metric")]
     pub local_panel_metric: String,
+    /// Sample the local panel while the window is hidden or unfocused.
+    /// Default off. Does not stop SSH keepalive, file transfer, or session logs,
+    /// and does not start ICMP while the speed view is showing.
+    #[serde(default)]
+    pub background_monitor: bool,
     /// Hide the sidebar local speed/latency block (title, toggle, and chart).
     /// Missing or false keeps it visible, so older configs are unchanged.
     #[serde(default)]
