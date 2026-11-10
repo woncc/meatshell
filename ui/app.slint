@@ -636,6 +636,13 @@ export component AppWindow inherits Window {
     callback persist-wallpaper-overlay(float);
     in property <[string]> term-fonts;             // installed monospace families
     in-out property <bool> interface-open: false;  // Interface settings overlay
+    in-out property <string> settings-page: "general";
+    // Session-list delete confirm. Drawn on the main window, not inside the
+    // sidebar, so a narrow sidebar cannot clip it (#76).
+    in-out property <bool> list-confirm-open: false;
+    in-out property <string> list-confirm-kind: "";
+    in-out property <string> list-confirm-target: "";
+    in-out property <string> list-confirm-text: "";
     // Interface card position (draggable by its title bar, clamped inside the
     // window so it can't leave the parent); init centered.
     // Centred, snapped to whole logical pixels: a half-pixel origin makes the
@@ -1047,6 +1054,7 @@ export component AppWindow inherits Window {
         root.cred-prompt-open ? ModalKind.credentials :
         root.hostkey-prompt-open ? ModalKind.host-key :
         root.confirm-delete-open ? ModalKind.delete-confirm :
+        root.list-confirm-open ? ModalKind.list-confirm :
         root.tab-close-open ? ModalKind.tab-close :
         root.extra-connect-open ? ModalKind.extra-connect :
         root.paste-confirm-open ? ModalKind.paste-confirm :
@@ -1097,7 +1105,9 @@ export component AppWindow inherits Window {
     callback duplicate-session(string /* session-id */);
     callback move-session(string /* session-id */, string /* group */);
     callback reorder-session(string /* session-id */, int /* dir: -1 up, 1 down */) -> bool;
+    callback reorder-session-begin();
     callback reorder-session-end();
+    callback reorder-session-cancel();
     callback toggle-group(string /* group */);
     callback remove-session(string /* session-id */);
     callback session-dialog-submit(SessionDraft);
@@ -1665,7 +1675,15 @@ export component AppWindow inherits Window {
                     duplicate-session(id) => { root.duplicate-session(id); }
                     move-session(id, group) => { root.move-session(id, group); }
                     reorder-session(id, dir) => { return root.reorder-session(id, dir); }
+                    reorder-begin => { root.reorder-session-begin(); }
                     reorder-end => { root.reorder-session-end(); }
+                    reorder-cancel => { root.reorder-session-cancel(); }
+                    request-confirm(kind, target, text) => {
+                        root.list-confirm-kind = kind;
+                        root.list-confirm-target = target;
+                        root.list-confirm-text = text;
+                        root.list-confirm-open = true;
+                    }
                     toggle-group(group) => { root.toggle-group(group); }
                     new-group => {
                         root.group-dialog-orig = "";
@@ -2043,7 +2061,15 @@ export component AppWindow inherits Window {
                         duplicate-session(id) => { root.duplicate-session(id); }
                         move-session(id, group) => { root.move-session(id, group); }
                         reorder-session(id, dir) => { return root.reorder-session(id, dir); }
-                        reorder-end => { root.reorder-session-end(); }
+                        reorder-begin => { root.reorder-session-begin(); }
+                    reorder-end => { root.reorder-session-end(); }
+                    reorder-cancel => { root.reorder-session-cancel(); }
+                    request-confirm(kind, target, text) => {
+                        root.list-confirm-kind = kind;
+                        root.list-confirm-target = target;
+                        root.list-confirm-text = text;
+                        root.list-confirm-open = true;
+                    }
                         toggle-group(group) => { root.toggle-group(group); }
                         new-group => {
                             root.group-dialog-orig = "";
@@ -2519,7 +2545,15 @@ export component AppWindow inherits Window {
                     duplicate-session(id) => { root.duplicate-session(id); }
                     move-session(id, group) => { root.move-session(id, group); }
                     reorder-session(id, dir) => { return root.reorder-session(id, dir); }
+                    reorder-begin => { root.reorder-session-begin(); }
                     reorder-end => { root.reorder-session-end(); }
+                    reorder-cancel => { root.reorder-session-cancel(); }
+                    request-confirm(kind, target, text) => {
+                        root.list-confirm-kind = kind;
+                        root.list-confirm-target = target;
+                        root.list-confirm-text = text;
+                        root.list-confirm-open = true;
+                    }
                     toggle-group(group) => { root.toggle-group(group); }
                     new-group => {
                         root.group-dialog-orig = "";
@@ -4997,6 +5031,33 @@ export component AppWindow inherits Window {
     ConfirmDialog {
         width: parent.width;
         height: parent.height;
+        is-open <=> root.list-confirm-open;
+        is-mac: root.is-mac;
+        covered: root.active-modal != ModalKind.list-confirm;
+        dismiss-on-backdrop: true;
+        title: root.list-confirm-kind == "group"
+            ? (root.lang-en ? "Delete group" : "删除分组")
+            : (root.lang-en ? "Delete session" : "删除会话");
+        message: root.list-confirm-text;
+        confirm-label: root.lang-en ? "Delete" : "删除";
+        confirm => {
+            if (root.list-confirm-kind == "group") {
+                root.delete-group(root.list-confirm-target);
+            } else {
+                root.remove-session(root.list-confirm-target);
+            }
+            root.list-confirm-open = false;
+            root.list-confirm-target = "";
+        }
+        cancel => {
+            root.list-confirm-open = false;
+            root.list-confirm-target = "";
+        }
+    }
+
+    ConfirmDialog {
+        width: parent.width;
+        height: parent.height;
         is-open <=> root.tab-close-open;
         is-mac: root.is-mac;
         covered: root.active-modal != ModalKind.tab-close;
@@ -5464,6 +5525,9 @@ export component AppWindow inherits Window {
                     vertical-stretch: 1;
                     lang-en: root.lang-en;
                     is-windows: root.is-windows;
+                    app-version: root.app-version;
+                    color-reference: root.color-reference;
+                    ifd-page <=> root.settings-page;
                     renderer-mode <=> root.renderer-mode;
                     term-fonts: root.term-fonts;
                     term-font-family: root.term-font-family;
@@ -5560,7 +5624,8 @@ export component AppWindow inherits Window {
                     open-shortcuts => { root.shortcuts-open = true; }
                     toggle-theme => { root.toggle-theme(); }
                     set-color-reference(id) => { root.set-color-reference(id); }
-                    open-about => { root.about-open = true; }
+                    open-repo => { root.open-repo(); }
+                    open-upstream => { root.open-upstream(); }
                     set-show-local-metric(v) => { root.set-show-local-metric(v); }
                     set-net-up-color(v) => { root.set-net-up-color(v) }
                     set-net-down-color(v) => { root.set-net-down-color(v) }

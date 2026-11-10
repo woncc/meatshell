@@ -39,6 +39,10 @@ component SessionRow inherits Rectangle {
     // happen at all.
     callback drag-start();
     callback drag-end();
+    callback drag-cancel();
+    // Window Y of the pointer while a drag is active, so a group header can
+    // tell it is the drop target without taking the pointer grab.
+    callback report-drag-y(length);
     // Full session list — group-header is non-empty once per group, so the
     // "move to group" submenu can iterate it to list each group exactly once.
     in property <[SessionInfo]> all-sessions;
@@ -63,42 +67,9 @@ component SessionRow inherits Rectangle {
 
     height: root.compact ? 44px : 36px;
 
-    if !root.system-row : HorizontalLayout {
-        x: parent.width - self.preferred-width - 6px;
-        y: (parent.height - 18px) / 2;
-        height: 18px;
-        spacing: 2px;
-        Rectangle {
-            width: 18px; height: 18px;
-            pin-host := TouchArea { mouse-cursor: pointer; clicked => { root.pin(); } }
-            Text {
-                text: "\u{F10D}";
-                font-family: "Material Icons";
-                color: root.session.pinned ? Theme.accent : Theme.text-muted;
-                font-size: 14px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
-            if pin-host.has-hover : Text {
-                y: 18px;
-                text: root.session.pinned ? @tr("Unpin") : @tr("Pin");
-                color: Theme.text-primary;
-                font-size: Theme.fs-xs;
-            }
-        }
-        Rectangle {
-            width: 18px; height: 18px;
-            edit-host := TouchArea { mouse-cursor: pointer; clicked => { root.edit(); } }
-            Text { text: "\u{E3C9}"; font-family: "Material Icons"; color: Theme.text-secondary; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
-            if edit-host.has-hover : Text { y: 18px; text: @tr("Edit"); color: Theme.text-primary; font-size: Theme.fs-xs; }
-        }
-        Rectangle {
-            width: 18px; height: 18px;
-            del-host := TouchArea { mouse-cursor: pointer; clicked => { root.remove(); } }
-            Text { text: "\u{E872}"; font-family: "Material Icons"; color: #cc3333; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
-            if del-host.has-hover : Text { y: 18px; text: @tr("Delete"); color: Theme.text-primary; font-size: Theme.fs-xs; }
-        }
-    }
+    // Host-row pin / edit / delete icons covered the name and the click that
+    // opens SSH (#76). Edit, delete, duplicate and move stay on the right-click
+    // menu. Group headers keep their own icons. Saved pin state is unchanged.
 
     // Remember where the right-click landed so the popup can appear there.
     property <length> ctx-x;
@@ -146,9 +117,10 @@ component SessionRow inherits Rectangle {
                     root.grab-dragging = false;
                 } else if (e.kind == PointerEventKind.cancel) {
                     // System-cancelled grab (e.g. compositor takeover): treat
-                    // as a release but never as a connect click.
+                    // as a release but never as a connect click, and do not
+                    // keep a hop that the user did not confirm.
                     if (root.grab-dragging) {
-                        root.drag-end();
+                        root.drag-cancel();
                     }
                     root.pressing = false;
                     root.grab-dragging = false;
@@ -160,12 +132,13 @@ component SessionRow inherits Rectangle {
             if (!root.grab-dragging) {
                 // A few pixels of vertical drift start a reorder drag; below
                 // that the press still resolves to a connect click.
-                if (root.reorder-enabled && abs(touch.mouse-y - root.grab-y) > 5px) {
+                if (root.reorder-enabled && abs(touch.mouse-y - root.grab-y) > 8px) {
                     root.grab-dragging = true;
                     root.grab-y = touch.mouse-y;
                     root.drag-start();
                 }
             } else {
+                root.report-drag-y(touch.absolute-position.y + touch.mouse-y);
                 // Swap at the neighbour's midpoint, then shift the anchor by a
                 // full slot (row + 2px spacing) — NOT back to the cursor — so
                 // overshoot carries over and the drag stays glued to the
@@ -412,8 +385,16 @@ export component Welcome inherits Rectangle {
     // Drag-to-reorder a host card among its same-group siblings (dir: -1/1).
     // Returns true when the card actually moved.
     callback reorder-session(string /* id */, int /* dir */) -> bool;
+    // Pointer passed the drag threshold. Rust snapshots the list so cancel
+    // can put it back.
+    callback reorder-begin();
     // Drag finished (pointer released) → persist the new order.
     callback reorder-end();
+    // Grab was cancelled. Rust restores the snapshot.
+    callback reorder-cancel();
+    // Ask the main window to show a centered confirm. The sidebar must not
+    // draw it: a narrow sidebar clips the card (#76).
+    callback request-confirm(string /* kind */, string /* target */, string /* text */);
     // Bumped by Rust whenever the sessions model is rebuilt wholesale; that
     // destroys the dragging row's pointer grab, so end the drag cleanly
     // instead of leaving the lifted card stuck (its grab is already gone —
@@ -423,6 +404,8 @@ export component Welcome inherits Rectangle {
         if (root.list-dragging) {
             root.list-dragging = false;
             root.drag-id = "";
+            root.drop-group = "";
+            root.drag-pointer-y = -1px;
             root.reorder-end();
         }
     }
@@ -432,6 +415,10 @@ export component Welcome inherits Rectangle {
     // component that owns the grab.
     property <string> drag-id;
     property <bool> list-dragging: false;
+    property <length> drag-pointer-y: -1px;
+    property <string> drop-group: "";
+    property <string> pending-drop-id: "";
+    property <string> pending-drop-group: "";
     callback toggle-group(string /* group */);
     callback new-group();
     callback edit-group(string /* current-name */);
@@ -439,10 +426,6 @@ export component Welcome inherits Rectangle {
     callback remove-session(string);
     callback pin-group(string);
     callback pin-session(string);
-    property <bool> confirm-open: false;
-    property <string> confirm-kind: "";
-    property <string> confirm-target: "";
-    property <string> confirm-text: "";
     callback search-changed(string);
     callback cycle-tab(bool /* reverse */);
     // Compact mode (welcome-as-sidebar): drop the big title/tagline header and
@@ -731,11 +714,26 @@ export component Welcome inherits Rectangle {
                         spacing: 2px;
                         // Group header on the first row of each group (#41).
                         // Click anywhere on it to collapse / expand the group.
-                        if session.group-header != "" : Rectangle {
+                        if session.group-header != "" : hdr := Rectangle {
                             height: 26px;
                             // Right-click popup anchor.
                             property <length> gmx;
                             property <length> gmy;
+                            // Window coordinates, so this stays correct while the
+                            // list is scrolled. system is never a drop target.
+                            // default is the ungrouped bucket and is allowed.
+                            property <bool> drop-hot: root.list-dragging
+                                && session.group-header != "system"
+                                && root.drag-pointer-y >= self.absolute-position.y
+                                && root.drag-pointer-y < self.absolute-position.y + self.height;
+                            background: drop-hot ? Theme.accent.with-alpha(0.22) : transparent;
+                            changed drop-hot => {
+                                if (drop-hot) {
+                                    root.drop-group = session.group-header;
+                                } else if (root.drop-group == session.group-header) {
+                                    root.drop-group = "";
+                                }
+                            }
                             HorizontalLayout {
                                 padding-top: 6px;
                                 padding-left: 4px;
@@ -818,10 +816,7 @@ export component Welcome inherits Rectangle {
                                             border-radius: Theme.radius-sm;
                                             background: dg-ta.has-hover ? #cc333320 : transparent;
                                             dg-ta := TouchArea { mouse-cursor: pointer; clicked => {
-                                                root.confirm-kind = "group";
-                                                root.confirm-target = session.group;
-                                                root.confirm-text = @tr("Delete this empty group? Sessions are not deleted.");
-                                                root.confirm-open = true;
+                                                root.request-confirm("group", session.group, @tr("Delete this empty group? Sessions are not deleted."));
                                             } }
                                             HorizontalLayout {
                                                 padding-left: 10px; spacing: 8px;
@@ -852,10 +847,7 @@ export component Welcome inherits Rectangle {
                                 if session.id == "" : Rectangle {
                                     width: 18px; height: 18px;
                                     del-group-icon := TouchArea { mouse-cursor: pointer; clicked => {
-                                        root.confirm-kind = "group";
-                                        root.confirm-target = session.group;
-                                        root.confirm-text = @tr("Delete this empty group? Sessions are not deleted.");
-                                        root.confirm-open = true;
+                                        root.request-confirm("group", session.group, @tr("Delete this empty group? Sessions are not deleted."));
                                     } }
                                     Text { text: "\u{E872}"; font-family: "Material Icons"; color: #cc3333; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
                                     if del-group-icon.has-hover : Text { y: 18px; text: @tr("Delete group"); color: Theme.text-primary; font-size: Theme.fs-xs; }
@@ -880,18 +872,39 @@ export component Welcome inherits Rectangle {
                             duplicate => { root.duplicate-session(session.id); }
                             move-to-group(g) => { root.move-session(session.id, g); }
                             reorder(dir) => { return root.reorder-session(root.drag-id, dir); }
-                            drag-start => { root.drag-id = session.id; root.list-dragging = true; }
+                            report-drag-y(y) => { root.drag-pointer-y = y; }
+                            drag-start => {
+                                root.drag-id = session.id;
+                                root.list-dragging = true;
+                                root.drop-group = "";
+                                root.reorder-begin();
+                            }
                             drag-end => {
+                                root.pending-drop-id = root.drag-id;
+                                root.pending-drop-group = root.drop-group;
                                 root.list-dragging = false;
                                 root.drag-id = "";
+                                root.drop-group = "";
+                                root.drag-pointer-y = -1px;
+                                // system is refused again in Rust. Same group,
+                                // a blank release and an unknown name do not save.
+                                if (root.pending-drop-id != "" && root.pending-drop-group != "" && root.pending-drop-group != "system") {
+                                    root.move-session(root.pending-drop-id, root.pending-drop-group);
+                                }
+                                root.pending-drop-id = "";
+                                root.pending-drop-group = "";
                                 root.reorder-end();
+                            }
+                            drag-cancel => {
+                                root.list-dragging = false;
+                                root.drag-id = "";
+                                root.drop-group = "";
+                                root.drag-pointer-y = -1px;
+                                root.reorder-cancel();
                             }
                             pin => { root.pin-session(session.id); }
                             remove => {
-                                root.confirm-kind = "session";
-                                root.confirm-target = session.id;
-                                root.confirm-text = @tr("Delete this session? This cannot be undone.");
-                                root.confirm-open = true;
+                                root.request-confirm("session", session.id, @tr("Delete this session? This cannot be undone."));
                             }
                         }
                     }
@@ -901,46 +914,4 @@ export component Welcome inherits Rectangle {
         }
     }
 
-    if root.confirm-open : Rectangle {
-        background: #00000066;
-        TouchArea { clicked => { root.confirm-open = false; } }
-        Rectangle {
-            x: (parent.width - self.width) / 2;
-            y: (parent.height - self.height) / 2;
-            width: 300px;
-            height: confirm-box.preferred-height;
-            background: Theme.popup-bg;
-            border-radius: Theme.radius-md;
-            border-width: 1px;
-            border-color: Theme.border-strong;
-            TouchArea {}
-            confirm-box := VerticalLayout {
-                padding: 16px;
-                spacing: 12px;
-                Text {
-                    text: root.confirm-text;
-                    color: Theme.text-primary;
-                    font-size: Theme.fs-md;
-                    wrap: word-wrap;
-                }
-                HorizontalLayout {
-                    alignment: end;
-                    spacing: 8px;
-                    GhostButton { text: @tr("Cancel"); clicked => { root.confirm-open = false; } }
-                    PrimaryButton {
-                        text: @tr("Delete");
-                        clicked => {
-                            if (root.confirm-kind == "group") {
-                                root.delete-group(root.confirm-target);
-                            } else {
-                                root.remove-session(root.confirm-target);
-                            }
-                            root.confirm-open = false;
-                            root.confirm-target = "";
-                        }
-                    }
-                }
-            }
-        }
-    }
 }

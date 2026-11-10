@@ -241,17 +241,18 @@ pub(super) fn refresh_terminal_selection(win: &AppWindow, bufs: &TermBuffers, ta
     win.window().request_redraw();
 }
 
-/// Resolve the user's saved theme preference to a dark/light bool (mirrors the
-/// startup logic): "light"/"dark" win; otherwise ask the OS, defaulting to dark.
-/// `ref:<id>` values are design-reference accents, not zsh themes (#51).
+/// A stored `ref:<id>` is a legacy accent, not a light/dark choice. Load splits
+/// it into `color_reference` plus the palette it used to force (#77). Callers
+/// that still see the raw string must not treat it as the theme.
+#[cfg(test)]
 pub(super) fn color_reference_id(pref: &str) -> &str {
     pref.strip_prefix("ref:").unwrap_or("")
 }
 
 pub(super) fn saved_theme_is_dark(pref: &str) -> Option<bool> {
     match pref {
-        "light" | "ref:sunrise" => Some(false),
-        "dark" | "ref:robbyrussell" | "ref:sunaku" => Some(true),
+        "light" => Some(false),
+        "dark" => Some(true),
         _ => None,
     }
 }
@@ -383,11 +384,14 @@ mod theme_reference_tests {
         assert_eq!(color_reference_id("ref:sunaku"), "sunaku");
         assert_eq!(color_reference_id("ref:sunrise"), "sunrise");
         assert_eq!(color_reference_id("dark"), "");
-        assert_eq!(saved_theme_is_dark("ref:robbyrussell"), Some(true));
-        assert_eq!(saved_theme_is_dark("ref:sunaku"), Some(true));
-        assert_eq!(saved_theme_is_dark("ref:sunrise"), Some(false));
+        // A leftover reference string must not flip the palette. Load migrates
+        // it; until then the theme stays whatever light/dark the user saved.
+        assert_eq!(saved_theme_is_dark("ref:robbyrussell"), None);
+        assert_eq!(saved_theme_is_dark("ref:sunaku"), None);
+        assert_eq!(saved_theme_is_dark("ref:sunrise"), None);
         assert_eq!(saved_theme_is_dark("ref:nodeys"), None);
         assert_eq!(saved_theme_is_dark("light"), Some(false));
+        assert_eq!(saved_theme_is_dark("dark"), Some(true));
     }
 }
 
