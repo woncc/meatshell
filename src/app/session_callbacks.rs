@@ -883,31 +883,21 @@ pub(super) fn wire_session_callbacks(
         let sessions_model = sessions_model.clone();
         let registry = registry.clone();
         window.on_move_session(move |id: SharedString, group: SharedString| {
-            let mut moved = false;
-            {
+            let moved = {
                 let mut s = store.borrow_mut();
-                if let Some(orig) = s.get(&id.to_string()).cloned() {
-                    let mut target = orig;
-                    // "default" is the display label for ungrouped → store empty.
-                    target.group = if group.as_str().eq_ignore_ascii_case("default") {
-                        String::new()
-                    } else if is_reserved_session_group(group.as_str().trim()) {
-                        // `system` belongs exclusively to built-in local shells.
-                        return;
-                    } else {
-                        group.to_string()
-                    };
-                    s.upsert(target);
+                let changed = s.assign_session_display_group(id.as_str(), group.as_str());
+                if changed {
                     if let Err(err) = s.save() {
                         tracing::warn!("failed to save config: {err:#}");
                     }
-                    moved = true;
                 }
+                changed
+            };
+            if !moved {
+                return;
             }
             sync_sessions_for_window(&weak, &store.borrow(), &sessions_model);
-            if moved {
-                registry.broadcast_config_changed();
-            }
+            registry.broadcast_config_changed();
             if let Some(w) = weak.upgrade() {
                 let _ = w.get_sessions();
             }
@@ -925,6 +915,58 @@ pub(super) fn wire_session_callbacks(
     // ending the drag after one hop. Saving + broadcasting are deferred to
     // reorder-session-end (pointer release).
     let sessions_dirty = Rc::new(std::cell::Cell::new(false));
+    // Sessions and folders as they were when the pointer passed the drag
+    // threshold. Cancel restores this; a short click never takes it.
+    let drag_snapshot: Rc<std::cell::RefCell<Option<(Vec<Session>, Vec<String>)>>> =
+        Rc::new(std::cell::RefCell::new(None));
+    {
+        let store = store.clone();
+        let drag_snapshot = drag_snapshot.clone();
+        window.on_reorder_session_begin(move || {
+            let s = store.borrow();
+            *drag_snapshot.borrow_mut() = Some((s.sessions().to_vec(), s.groups().to_vec()));
+        });
+    }
+    {
+        let weak = window.as_weak();
+        let store = store.clone();
+        let sessions_model = sessions_model.clone();
+        let registry = registry.clone();
+        let sessions_dirty = sessions_dirty.clone();
+        let drag_snapshot = drag_snapshot.clone();
+        window.on_reorder_session_cancel(move || {
+            sessions_dirty.set(false);
+            let Some((sessions, groups)) = drag_snapshot.borrow_mut().take() else {
+                return;
+            };
+            let changed = {
+                let current = store.borrow();
+                let order = |rows: &[Session]| -> Vec<(String, String)> {
+                    rows.iter()
+                        .map(|s| (s.id.clone(), s.group.clone()))
+                        .collect()
+                };
+                order(current.sessions()) != order(&sessions)
+                    || current.groups() != groups.as_slice()
+            };
+            {
+                let mut s = store.borrow_mut();
+                s.cache.sessions = sessions;
+                s.cache.groups = groups;
+            }
+            if !changed {
+                return;
+            }
+            if let Err(err) = store.borrow_mut().save() {
+                tracing::warn!("failed to restore session list after a cancelled drag: {err:#}");
+            }
+            sync_sessions_for_window(&weak, &store.borrow(), &sessions_model);
+            registry.broadcast_config_changed();
+            if let Some(w) = weak.upgrade() {
+                let _ = w.get_sessions();
+            }
+        });
+    }
     {
         let weak = window.as_weak();
         let store = store.clone();
@@ -984,7 +1026,9 @@ pub(super) fn wire_session_callbacks(
         let sessions_model = sessions_model.clone();
         let registry = registry.clone();
         let sessions_dirty = sessions_dirty.clone();
+        let drag_snapshot = drag_snapshot.clone();
         window.on_reorder_session_end(move || {
+            drag_snapshot.borrow_mut().take();
             if !sessions_dirty.replace(false) {
                 return;
             }
@@ -2123,7 +2167,9 @@ pub(super) fn listen_for_config_changes(ctx: &WinCtx, sessions_model: &Rc<VecMod
                 w.invoke_refresh_sidebar();
                 // Rebuild the list with the window's current search filter.
                 sync_sessions_for_window(&weak, &store.borrow(), &sessions_model);
-                // Re-apply the theme to the chrome AND every open terminal buffer.
+                // Accent and light/dark are stored separately. Re-apply both so
+                // another window follows a reference without flipping palette.
+                w.set_color_reference(store.borrow().color_reference().into());
                 apply_dark_mode(&w, &bufs, theme_pref_is_dark(&store.borrow()));
                 // Language translations are process-global; refresh our flag only.
                 w.set_lang_en(crate::i18n::is_en());

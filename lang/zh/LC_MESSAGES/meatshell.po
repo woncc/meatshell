@@ -746,3 +746,12 @@ msgstr "显示本机速度"
 
 msgid "Show latency"
 msgstr "显示延迟"
+
+msgid "+ New group"
+msgstr "新建分组"
+
+msgid "Delete this empty group? Sessions are not deleted."
+msgstr "删除这个空分组？不会删除其中的会话。"
+
+msgid "Delete this session? This cannot be undone."
+msgstr "删除这个会话？此操作无法撤销。"

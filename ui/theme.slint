@@ -87,13 +87,18 @@ export global Theme {
     out property <brush> text-secondary: dark ? #b4b9c4 : #45454a;
     out property <brush> text-muted:     dark ? #9196a3 : #606066;
 
-    out property <brush> accent: root.wallpaper-active ? root.wp-accent : (
+    // One accent for the resting, hover and pressed states. A design reference
+    // replaces only this colour. Hover and pressed stay on the same hue so a
+    // reference cannot jump back to the built-in blue, and choosing one does
+    // not switch the light/dark palette or the terminal font colour.
+    property <color> accent-color: root.wallpaper-active ? root.wp-accent : (
         root.reference-id == "robbyrussell" ? #2ea043 :
         root.reference-id == "sunaku" ? #3fb950 :
         root.reference-id == "sunrise" ? #b58900 :
         (dark ? #4a90e2 : #0071e3));
-    out property <brush> accent-hover:   root.wallpaper-active ? root.wp-accent.brighter(0.12) : (dark ? #5aa0f2 : #0077ed);
-    out property <brush> accent-pressed: root.wallpaper-active ? root.wp-accent.darker(0.12)   : (dark ? #3a80d2 : #006adb);
+    out property <brush> accent: accent-color;
+    out property <brush> accent-hover: accent-color.brighter(0.12);
+    out property <brush> accent-pressed: accent-color.darker(0.12);
 
     out property <brush> success: dark ? #4ec9b0 : #34c759;
     out property <brush> warning: dark ? #e2a84a : #ff9f0a;

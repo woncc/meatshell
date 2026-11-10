@@ -361,6 +361,25 @@ pub(crate) fn is_reserved_session_group(name: &str) -> bool {
     name.eq_ignore_ascii_case("default") || name.eq_ignore_ascii_case("system")
 }
 
+/// `theme_pref = "ref:<id>"` used to force a whole light or dark palette.
+/// Split that into the accent id plus the palette it forced, so the next
+/// launch keeps the user's light/dark and the id only recolors the accent.
+pub(crate) fn split_legacy_color_reference(cfg: &mut ConfigFile) -> bool {
+    let Some(raw) = cfg.theme_pref.strip_prefix("ref:") else {
+        return false;
+    };
+    let id = raw.trim();
+    let (reference, theme) = match id {
+        "sunrise" => ("sunrise", "light"),
+        "robbyrussell" => ("robbyrussell", "dark"),
+        "sunaku" => ("sunaku", "dark"),
+        _ => ("", "dark"),
+    };
+    cfg.color_reference = reference.to_string();
+    cfg.theme_pref = theme.to_string();
+    true
+}
+
 /// Named display groups: explicit folders ∪ the groups sessions are filed
 /// under, with reserved names and ungrouped excluded, de-duplicated and
 /// sorted case-insensitively. The single source of truth for group display
@@ -574,6 +593,7 @@ impl ConfigStore {
                     // builds allowed moving saved servers into `system`, creating
                     // a duplicate empty-menu folder (#316, #324).
                     migrated |= normalize_reserved_session_groups(&mut cfg);
+                    migrated |= split_legacy_color_reference(&mut cfg);
                     // One-time push of the new default layout to existing users
                     // (only for items they never changed). (#new-user-defaults)
                     migrated |= migrate_defaults(&mut cfg);
@@ -734,6 +754,49 @@ impl ConfigStore {
         true
     }
 
+    /// Move a saved server into a display group and leave every other field
+    /// alone. `default` is the ungrouped bucket (stored as an empty string) and
+    /// is a valid target. `system` is the built-in local-shell group: it is not
+    /// a target, and built-in rows are not in this store so they cannot be
+    /// dragged out. An unknown name, a missing id, or a session that is already
+    /// in the target group changes nothing.
+    pub fn assign_session_display_group(&mut self, id: &str, display_group: &str) -> bool {
+        let display_group = display_group.trim();
+        if display_group.is_empty() || display_group.eq_ignore_ascii_case("system") {
+            return false;
+        }
+        let Some(idx) = self.cache.sessions.iter().position(|s| s.id == id) else {
+            return false;
+        };
+        let new_group = if display_group.eq_ignore_ascii_case("default") {
+            String::new()
+        } else if is_reserved_session_group(display_group) {
+            return false;
+        } else if self.cache.groups.iter().any(|g| g == display_group)
+            || self.cache.sessions.iter().any(|s| s.group == display_group)
+        {
+            display_group.to_string()
+        } else {
+            return false;
+        };
+        if self.cache.sessions[idx].group == new_group {
+            return false;
+        }
+        let source = self.cache.sessions[idx].group.clone();
+        self.cache.sessions[idx].group = new_group;
+        // Keep a named folder that just lost its last member, including a
+        // collapsed one, so the session is not dropped and the folder stays
+        // a valid drop target.
+        if !source.is_empty()
+            && !is_reserved_session_group(source.trim())
+            && !self.cache.sessions.iter().any(|s| s.group == source)
+            && !self.cache.groups.iter().any(|g| g == &source)
+        {
+            self.cache.groups.push(source);
+        }
+        true
+    }
+
     pub fn upsert(&mut self, mut session: Session) {
         for forward in &mut session.forwards {
             if forward.id.is_empty() {
@@ -791,6 +854,22 @@ impl ConfigStore {
 
     pub fn set_theme_pref(&mut self, pref: String) {
         self.cache.theme_pref = pref;
+    }
+
+    /// Accent design reference. Empty, or one of the three known ids.
+    /// Unknown values read back as empty and are not stored.
+    pub fn color_reference(&self) -> &str {
+        match self.cache.color_reference.as_str() {
+            "robbyrussell" | "sunaku" | "sunrise" => self.cache.color_reference.as_str(),
+            _ => "",
+        }
+    }
+
+    pub fn set_color_reference(&mut self, id: String) {
+        self.cache.color_reference = match id.as_str() {
+            "robbyrussell" | "sunaku" | "sunrise" => id,
+            _ => String::new(),
+        };
     }
 
     /// Renderer preference for the current platform.
@@ -2044,6 +2123,88 @@ mod tests {
         assert_eq!(again.sessions[0].user, "alice");
         assert!(store.toggle_pinned_session("b"));
         assert!(store.pinned_sessions().is_empty());
+    }
+
+    #[test]
+    fn legacy_color_reference_keeps_the_palette_it_used_to_force() {
+        let mut cfg = ConfigFile::default();
+        cfg.theme_pref = "ref:sunrise".into();
+        assert!(split_legacy_color_reference(&mut cfg));
+        assert_eq!(cfg.theme_pref, "light");
+        assert_eq!(cfg.color_reference, "sunrise");
+
+        cfg.theme_pref = "ref:robbyrussell".into();
+        assert!(split_legacy_color_reference(&mut cfg));
+        assert_eq!(cfg.theme_pref, "dark");
+        assert_eq!(cfg.color_reference, "robbyrussell");
+
+        cfg.theme_pref = "ref:sunaku".into();
+        assert!(split_legacy_color_reference(&mut cfg));
+        assert_eq!(cfg.color_reference, "sunaku");
+        assert_eq!(cfg.theme_pref, "dark");
+
+        cfg.theme_pref = "ref:nodeys".into();
+        assert!(split_legacy_color_reference(&mut cfg));
+        assert_eq!(cfg.color_reference, "");
+        assert_eq!(cfg.theme_pref, "dark");
+
+        cfg.theme_pref = "light".into();
+        cfg.color_reference = "sunrise".into();
+        assert!(!split_legacy_color_reference(&mut cfg));
+        assert_eq!(cfg.theme_pref, "light");
+        assert_eq!(cfg.color_reference, "sunrise");
+    }
+
+    #[test]
+    fn assign_session_display_group_moves_ordinary_groups_and_refuses_system() {
+        let mut store = temp_store();
+        let mut host = Session::new_empty();
+        host.id = "s1".into();
+        host.name = "web".into();
+        host.host = "10.0.0.8".into();
+        host.user = "alice".into();
+        host.port = 22;
+        host.password = Secret::new("s3cr3t");
+        host.private_key_path = "/keys/a".into();
+        host.group = "lab".into();
+        store.cache.sessions = vec![host];
+        store.cache.groups = vec!["lab".into(), "ops".into()];
+        store.cache.collapsed_session_groups = Some(vec!["ops".into()]);
+        assert!(store.toggle_pinned_session("s1"));
+
+        assert!(store.assign_session_display_group("s1", "ops"));
+        let moved = store.get("s1").unwrap();
+        assert_eq!(moved.group, "ops");
+        assert_eq!(moved.host, "10.0.0.8");
+        assert_eq!(moved.user, "alice");
+        assert_eq!(moved.password.as_str(), "s3cr3t");
+        assert_eq!(moved.private_key_path, "/keys/a");
+        assert_eq!(moved.id, "s1");
+        assert_eq!(store.pinned_sessions(), ["s1"]);
+        // Collapsed target still holds the session.
+        assert!(store
+            .collapsed_session_groups()
+            .unwrap()
+            .iter()
+            .any(|g| g == "ops"));
+
+        assert!(!store.assign_session_display_group("s1", "ops"));
+        assert!(!store.assign_session_display_group("s1", "system"));
+        assert!(!store.assign_session_display_group("s1", "SYSTEM"));
+        assert!(!store.assign_session_display_group("s1", "missing"));
+        assert!(!store.assign_session_display_group("nope", "lab"));
+        assert!(!store.assign_session_display_group("s1", ""));
+        assert_eq!(store.get("s1").unwrap().group, "ops");
+        assert_eq!(store.get("s1").unwrap().password.as_str(), "s3cr3t");
+
+        assert!(store.assign_session_display_group("s1", "default"));
+        assert_eq!(store.get("s1").unwrap().group, "");
+        assert!(store.groups().iter().any(|g| g == "ops"));
+        assert_eq!(store.pinned_sessions(), ["s1"]);
+
+        assert!(store.assign_session_display_group("s1", "lab"));
+        assert_eq!(store.get("s1").unwrap().group, "lab");
+        assert_eq!(store.get("s1").unwrap().id, "s1");
     }
 
     #[test]

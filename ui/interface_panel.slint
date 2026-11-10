@@ -430,7 +430,7 @@ export component InterfacePanel inherits Rectangle {
     in-out property <string> wsl-new-distribution;
     in-out property <string> wsl-new-directory: "~";
 
-    property <string> ifd-page: "general";
+    in-out property <string> ifd-page: "general";
     property <string> new-rule-pattern;
     property <bool> new-rule-regex;
     property <bool> new-rule-case-sensitive;
@@ -465,7 +465,10 @@ export component InterfacePanel inherits Rectangle {
     callback open-shortcuts();
     callback toggle-theme();
     callback set-color-reference(string);
-    callback open-about();
+    callback open-repo();
+    callback open-upstream();
+    in property <string> app-version;
+    in property <string> color-reference;
     callback set-show-local-metric(bool);
     callback set-net-up-color(string) -> bool;
     callback set-net-down-color(string) -> bool;
@@ -550,7 +553,8 @@ export component InterfacePanel inherits Rectangle {
                 }
                 NavItem {
                     icon: "\u{E88E}"; label: @tr("About");
-                    clicked => { root.open-about(); }
+                    active: root.ifd-page == "about";
+                    clicked => { root.ifd-page = "about"; }
                 }
                 }
             }
@@ -598,10 +602,19 @@ export component InterfacePanel inherits Rectangle {
                         : "只是设计参考，只改应用强调色。不是 Oh My Zsh 主题，不会安装或执行任何脚本。";
                     HorizontalLayout {
                         spacing: 6px;
+                        GhostButton { text: root.lang-en ? "Default" : "默认"; clicked => { root.set-color-reference(""); } }
                         GhostButton { text: "robbyrussell"; clicked => { root.set-color-reference("robbyrussell"); } }
                         GhostButton { text: "sunaku"; clicked => { root.set-color-reference("sunaku"); } }
                         GhostButton { text: "sunrise"; clicked => { root.set-color-reference("sunrise"); } }
                     }
+                }
+                Text {
+                    text: root.color-reference == ""
+                        ? (root.lang-en ? "Built-in accent. Light and dark are unchanged." : "内置强调色。深浅不变。")
+                        : (root.lang-en ? "Accent only. Light and dark stay as they are." : "只改强调色。深浅保持不变。");
+                    color: Theme.text-secondary;
+                    font-size: Theme.fs-xs;
+                    wrap: word-wrap;
                 }
                 SectionHeader { text: root.lang-en ? "FONT" : "字体"; height: 24px; }
                 SettingRow {
@@ -1756,6 +1769,91 @@ export component InterfacePanel inherits Rectangle {
                     font-size: 11px * Theme.panel-font;
                     color: Theme.text-muted;
                     wrap: word-wrap;
+                }
+            }
+
+            if root.ifd-page == "about" : VerticalLayout {
+                padding-left: 20px;
+                padding-right: 20px;
+                padding-top: 14px;
+                spacing: 8px;
+                alignment: start;
+                SectionHeader { text: @tr("About"); height: 24px; }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 8px;
+                    Text {
+                        text: "meatshell";
+                        color: Theme.text-primary;
+                        font-size: 18px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: "v" + root.app-version;
+                        color: Theme.text-muted;
+                        font-size: Theme.fs-sm;
+                        vertical-alignment: center;
+                    }
+                }
+                Text {
+                    text: @tr("meatshell — a lightweight Rust + Slint SSH client by 'lil meatball'");
+                    color: Theme.text-secondary;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 6px;
+                    Text {
+                        text: @tr("Open source");
+                        color: Theme.text-muted;
+                        font-size: Theme.fs-sm;
+                        vertical-alignment: center;
+                    }
+                    repo-link := Rectangle {
+                        width: repo-label.preferred-width + 8px;
+                        height: 22px;
+                        border-radius: Theme.radius-sm;
+                        background: repo-link-ta.has-hover ? Theme.bg-hover : transparent;
+                        repo-label := Text {
+                            x: 4px;
+                            text: "github.com/woncc/meatshell";
+                            color: Theme.accent;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                        }
+                        repo-link-ta := TouchArea { mouse-cursor: pointer; clicked => { root.open-repo(); } }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 6px;
+                    Text {
+                        text: @tr("Fork of");
+                        color: Theme.text-muted;
+                        font-size: Theme.fs-sm;
+                        vertical-alignment: center;
+                    }
+                    upstream-link := Rectangle {
+                        width: upstream-label.preferred-width + 8px;
+                        height: 22px;
+                        border-radius: Theme.radius-sm;
+                        background: upstream-link-ta.has-hover ? Theme.bg-hover : transparent;
+                        upstream-label := Text {
+                            x: 4px;
+                            text: "github.com/yituorou/meatshell";
+                            color: Theme.accent;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                        }
+                        upstream-link-ta := TouchArea { mouse-cursor: pointer; clicked => { root.open-upstream(); } }
+                    }
+                }
+                Text {
+                    text: "MIT / Apache-2.0";
+                    color: Theme.text-muted;
+                    font-size: Theme.fs-xs;
                 }
             }
 
