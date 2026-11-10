@@ -33,6 +33,12 @@ export component IconButton inherits Rectangle {
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
     }
+    if touch.has-hover && root.tooltip != "" : Text {
+        y: parent.height + 2px;
+        text: root.tooltip;
+        color: Theme.text-primary;
+        font-size: Theme.fs-xs;
+    }
 }
 
 // --- PrimaryButton ---------------------------------------------------------

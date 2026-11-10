@@ -714,3 +714,33 @@ msgstr "Enable SFTP"
 
 msgid "Off never opens an SFTP connection and hides the SFTP panel."
 msgstr "Off never opens an SFTP connection and hides the SFTP panel."
+
+msgid "Paste path and open"
+msgstr "Paste path and open"
+
+msgid "Up one folder"
+msgstr "Up one folder"
+
+msgid "Download selected"
+msgstr "Download selected"
+
+msgid "Delete selected"
+msgstr "Delete selected"
+
+msgid "Expand panel"
+msgstr "Expand panel"
+
+msgid "Collapse panel"
+msgstr "Collapse panel"
+
+msgid "Collapse sidebar"
+msgstr "Collapse sidebar"
+
+msgid "System information"
+msgstr "System information"
+
+msgid "Show local speed"
+msgstr "Show local speed"
+
+msgid "Show latency"
+msgstr "Show latency"
