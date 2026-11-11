@@ -54,6 +54,16 @@ fn removed_frontend_message(args: &[String]) -> Option<&'static str> {
 }
 
 fn main() -> anyhow::Result<()> {
+    let result = run();
+    if let Err(error) = &result {
+        // In a Windows GUI build there is no console to retain main's error.
+        // The file layer is synchronous, including with panic=abort.
+        tracing::error!(error = %format!("{error:#}"), "application terminated with an error");
+    }
+    result
+}
+
+fn run() -> anyhow::Result<()> {
     let mut args: Vec<String> = std::env::args().collect();
     config::configure_profile(&mut args)?;
     if let Some(message) = removed_frontend_message(&args) {
@@ -81,6 +91,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     init_tracing();
+    install_panic_logging();
 
     // macOS defaults to Slint's CPU renderer. FemtoVG and Skia remain available
     // in Settings -> Interface -> Rendering for users who prefer GPU rendering.
@@ -115,6 +126,18 @@ fn main() -> anyhow::Result<()> {
     // `app::on_send_key`, so we no longer need (and must not use) ImmDisableIME.
     let intent = app::launch::parse(&args);
     app::run(intent)
+}
+
+fn install_panic_logging() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        tracing::error!(
+            panic = %info,
+            backtrace = %std::backtrace::Backtrace::force_capture(),
+            "application panicked"
+        );
+        previous(info);
+    }));
 }
 
 /// Set up tracing: stderr (honours RUST_LOG, default info) **plus** a capped
@@ -168,6 +191,46 @@ fn init_tracing() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn panic_is_written_to_error_log() {
+        const CHILD_PROFILE: &str = "MEATSHELL_PANIC_LOG_TEST_PROFILE";
+        if let Some(profile) = std::env::var_os(CHILD_PROFILE) {
+            let mut args = vec![
+                "meatshell".to_owned(),
+                "--data-dir".to_owned(),
+                profile.to_string_lossy().into_owned(),
+            ];
+            config::configure_profile(&mut args).unwrap();
+            init_tracing();
+            install_panic_logging();
+            panic!("panic-log-regression-marker");
+        }
+
+        // A child process isolates the global panic hook and tracing subscriber
+        // from other tests, and exercises the actual synchronous file writer.
+        let profile = std::env::temp_dir().join(format!(
+            "meatshell-panic-log-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "tests::panic_is_written_to_error_log", "--nocapture"])
+            .env(CHILD_PROFILE, &profile)
+            .output()
+            .unwrap();
+        let log = std::fs::read_to_string(profile.join("log/error.log")).unwrap();
+        std::fs::remove_dir_all(&profile).unwrap();
+        assert!(!output.status.success());
+        assert!(log.contains("application panicked"));
+        assert!(log.contains("panic-log-regression-marker"));
+        assert!(log.contains("main.rs:"));
+        assert!(log.contains("backtrace="));
+    }
+
 
     fn argv(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|part| (*part).to_string()).collect()
