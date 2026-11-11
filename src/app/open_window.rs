@@ -2,6 +2,20 @@
 
 use super::*;
 
+fn slim_version(tag: &str) -> Option<((u32, u32, u32), u32)> {
+    let (base, revision) = tag.trim().split_once("-slim.")?;
+    Some((parse_version(base)?, revision.parse().ok()?))
+}
+
+#[cfg(test)]
+#[test]
+fn slim_update_versions_are_channel_specific_and_ordered() {
+    assert!(slim_version("v0.8.3-slim.2") > slim_version("0.8.3-slim.1"));
+    assert!(slim_version("v0.8.4-slim.1") > slim_version("v0.8.3-slim.99"));
+    assert_eq!(slim_version("v0.8.3"), None);
+    assert_eq!(slim_version("v0.8.3-slim.invalid"), None);
+}
+
 /// Window activity, for idle-CPU throttling (#127): the winit event hook
 /// updates it and the resource sampler / cursor blink read it.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -709,22 +723,34 @@ pub(super) fn open_window(
     if first_window && store.borrow().update_check_enabled() {
         let weak = window.as_weak();
         std::thread::spawn(move || {
-            let body =
-                match ureq::get("https://api.github.com/repos/woncc/meatshell/releases/latest")
-                    .set("User-Agent", "meatshell-update-check")
-                    .timeout(std::time::Duration::from_secs(8))
-                    .call()
-                {
-                    Ok(resp) => resp.into_string().unwrap_or_default(),
-                    Err(_) => return,
-                };
+            let body = match ureq::get(
+                "https://api.github.com/repos/woncc/meatshell/releases?per_page=100",
+            )
+            .set("User-Agent", "meatshell-update-check")
+            .timeout(std::time::Duration::from_secs(8))
+            .call()
+            {
+                Ok(resp) => resp.into_string().unwrap_or_default(),
+                Err(_) => return,
+            };
             let json: serde_json::Value = match serde_json::from_str(&body) {
                 Ok(v) => v,
                 Err(_) => return,
             };
-            let tag = json["tag_name"].as_str().unwrap_or("").to_string();
+            let tag = json
+                .as_array()
+                .and_then(|releases| {
+                    releases
+                        .iter()
+                        .filter(|release| !release["draft"].as_bool().unwrap_or(true))
+                        .filter_map(|release| release["tag_name"].as_str())
+                        .filter_map(|tag| slim_version(tag).map(|version| (version, tag)))
+                        .max_by_key(|(version, _)| *version)
+                        .map(|(_, tag)| tag.to_string())
+                })
+                .unwrap_or_default();
             let newer = matches!(
-                (parse_version(&tag), parse_version(env!("CARGO_PKG_VERSION"))),
+                (slim_version(&tag), slim_version(env!("CARGO_PKG_VERSION"))),
                 (Some(latest), Some(cur)) if latest > cur
             );
             if !newer {

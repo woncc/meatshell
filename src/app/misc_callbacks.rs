@@ -80,7 +80,7 @@ pub(super) fn wire_downloads_and_links(
     // --- In-app update check (#48) -----------------------------------------
     // "Download" on the banner opens this fork's latest-release page.
     window.on_open_update_url(move || {
-        let url = "https://github.com/woncc/meatshell/releases/latest";
+        let url = "https://github.com/woncc/meatshell/releases?q=slim";
         #[cfg(windows)]
         let _ = std::process::Command::new("explorer").arg(url).spawn();
         #[cfg(target_os = "macos")]
