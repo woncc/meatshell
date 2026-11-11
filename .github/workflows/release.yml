@@ -82,6 +82,15 @@ jobs:
           CARGO_PROFILE_RELEASE_STRIP: ${{ runner.os == 'Windows' && 'none' || 'symbols' }}
         run: cargo build --locked --release --target ${{ matrix.target }}
 
+      - name: Preserve matching Windows symbols
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-symbols-${{ github.sha }}
+          path: target/${{ matrix.target }}/release/meatshell.pdb
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Verify binary version
         if: runner.os != 'Windows'
         shell: bash
@@ -104,15 +113,6 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/test-windows-startup.ps1 -Executable ./target/${{ matrix.target }}/release/meatshell.exe
-
-      - name: Preserve matching Windows symbols
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-symbols-${{ github.sha }}
-          path: target/${{ matrix.target }}/release/meatshell.pdb
-          if-no-files-found: error
-          retention-days: 90
 
       - name: Package
         shell: bash
