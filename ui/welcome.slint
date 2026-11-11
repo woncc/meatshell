@@ -722,10 +722,19 @@ export component Welcome inherits Rectangle {
                             // Window coordinates, so this stays correct while the
                             // list is scrolled. system is never a drop target.
                             // default is the ungrouped bucket and is allowed.
-                            property <bool> drop-hot: root.list-dragging
-                                && session.group-header != "system"
-                                && root.drag-pointer-y >= self.absolute-position.y
-                                && root.drag-pointer-y < self.absolute-position.y + self.height;
+                            // Keep geometry inside an explicit branch: Slint
+                            // hoists repeated reads out of an && expression.
+                            // A changed tracker reads this during header creation,
+                            // while the parent layout may still be evaluating.
+                            property <bool> drop-hot: {
+                                if (root.list-dragging && session.group-header != "system") {
+                                    let top = self.absolute-position.y;
+                                    let pointer-y = root.drag-pointer-y;
+                                    pointer-y >= top && pointer-y < top + self.height
+                                } else {
+                                    false
+                                }
+                            };
                             background: drop-hot ? Theme.accent.with-alpha(0.22) : transparent;
                             changed drop-hot => {
                                 if (drop-hot) {
