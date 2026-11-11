@@ -7,8 +7,6 @@ on:
         description: Include Slint property names and use faster diagnostic optimization
         type: boolean
         default: false
-  push:
-    branches: [codex/windows-startup-fix, codex/windows-startup-fix-slim]
 
 permissions:
   contents: read
