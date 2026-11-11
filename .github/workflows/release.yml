@@ -215,7 +215,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          prerelease: ${{ contains(github.ref_name, '-remote.') }}
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-remote.') || contains(github.ref_name, '-slim.') }}
           files: ${{ env.ASSET }}
           fail_on_unmatched_files: true
 
@@ -223,7 +224,8 @@ jobs:
         if: matrix.name == 'windows-x86_64' && env.MSI != '' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          prerelease: ${{ contains(github.ref_name, '-remote.') }}
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-remote.') || contains(github.ref_name, '-slim.') }}
           files: ${{ env.MSI }}
           fail_on_unmatched_files: false
 
