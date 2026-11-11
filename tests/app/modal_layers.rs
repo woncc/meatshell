@@ -46,6 +46,73 @@ fn host() -> (
     (ui, window, windows)
 }
 
+#[test]
+fn windows_session_groups_render_without_layout_recursion() {
+    std::thread::spawn(|| {
+        use slint::private_unstable_api::re_exports::{LogicalLength, Orientation, VRc, WindowInner};
+
+        let windows = Rc::new(RefCell::new(Vec::new()));
+        slint::platform::set_platform(Box::new(Backend(windows.clone()))).unwrap();
+        let ui = AppWindow::new().unwrap();
+        ui.set_is_mac(false);
+        ui.set_is_windows(true);
+        ui.set_custom_titlebar(true);
+        // A fresh Windows profile still has built-in local-shell rows.
+        ui.set_sessions(Rc::new(VecModel::from(vec![SessionInfo {
+            id: "local-powershell".into(),
+            name: "PowerShell".into(),
+            group: "system".into(),
+            group_header: "system".into(),
+            builtin: true,
+            ..Default::default()
+        }, SessionInfo {
+            id: "saved-example".into(),
+            name: "Example".into(),
+            host: "example.invalid".into(),
+            group: "servers".into(),
+            group_header: "servers".into(),
+            ..Default::default()
+        }])).into());
+        let tabs: ModelRc<TabInfo> = Rc::new(VecModel::from(vec![TabInfo {
+            id: "welcome".into(),
+            title: "New tab".into(),
+            title_raw: "New tab".into(),
+            title_len: 7,
+            kind: "welcome".into(),
+            ..Default::default()
+        }])).into();
+        ui.set_tabs(tabs.clone());
+        ui.set_active_tab_id("welcome".into());
+        ui.set_panes(Rc::new(VecModel::from(vec![PaneInfo {
+            id: 1,
+            w: 1200.0,
+            h: 800.0,
+            active_id: "welcome".into(),
+            focused: true,
+            tabs,
+            ..Default::default()
+        }])).into());
+
+        // Winit queries horizontal constraints and sets the initial width before
+        // querying vertical constraints. MinimalSoftwareWindow alone skips this
+        // native startup path, so merely drawing a frame does not cover it.
+        let runtime = WindowInner::from_pub(ui.window());
+        let component_rc = runtime.component();
+        let component = VRc::borrow_pin(&component_rc);
+        let horizontal = component.as_ref().layout_info(Orientation::Horizontal);
+        runtime.window_item().unwrap().as_pin_ref().width.set(LogicalLength::new(horizontal.preferred_bounded()));
+        let vertical = component.as_ref().layout_info(Orientation::Vertical);
+        assert!(horizontal.preferred_bounded() >= 720.0);
+        assert!(vertical.preferred_bounded() >= 420.0);
+        ui.show().unwrap();
+        let window = windows.borrow()[0].clone();
+        window.set_size(slint::PhysicalSize::new(1000, 850));
+        settle(&window);
+    })
+    .join()
+    .unwrap();
+}
+
 fn bind_cancellations(ui: &AppWindow, calls: Rc<RefCell<Vec<&'static str>>>, window_id: u64) {
     let weak = ui.as_weak();
     let count = calls.clone();
